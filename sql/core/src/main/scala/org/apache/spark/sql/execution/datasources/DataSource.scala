@@ -333,7 +333,9 @@ case class DataSource(
             caseInsensitiveOptions.get("path").toSeq ++ paths,
             sparkSession.sessionState.newHadoopConf()) =>
         val basePath = new Path((caseInsensitiveOptions.get("path").toSeq ++ paths).head)
-        val fileCatalog = new MetadataLogFileIndex(sparkSession, basePath, userSpecifiedSchema)
+        val fileCatalog = new ConcurrentMetadataLogFileIndex(sparkSession, basePath,
+          userSpecifiedSchema,
+          parameters = catalogTable.map(_.properties).getOrElse(Map()))
         val dataSchema = userSpecifiedSchema.orElse {
           format.inferSchema(
             sparkSession,

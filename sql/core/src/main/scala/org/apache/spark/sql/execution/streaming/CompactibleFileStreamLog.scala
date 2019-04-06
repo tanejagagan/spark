@@ -180,11 +180,21 @@ abstract class CompactibleFileStreamLog[T <: AnyRef : ClassTag](
     super.add(batchId, compactLogs(allLogs).toArray)
   }
 
+  def allFilesWithLatestBatchId( ): (Array[T], Long) = {
+    val latestId = getLatest().map(_._1).getOrElse(-1L)
+    (allFiles(latestId), latestId)
+  }
+
+  def allFiles(): Array[T] = {
+    val latestId = getLatest().map(_._1).getOrElse(-1L)
+    allFiles(latestId)
+  }
+
   /**
    * Returns all files except the deleted ones.
    */
-  def allFiles(): Array[T] = {
-    var latestId = getLatest().map(_._1).getOrElse(-1L)
+  def allFiles(latestId : Long): Array[T] = {
+
     // There is a race condition when `FileStreamSink` is deleting old files and `StreamFileIndex`
     // is calling this method. This loop will retry the reading to deal with the
     // race condition.
@@ -206,10 +216,7 @@ abstract class CompactibleFileStreamLog[T <: AnyRef : ClassTag](
             // `StreamFileIndex` are reading. However, it only happens when a compaction is
             // deleting old files. If so, let's try the next compaction batch and we should find it.
             // Otherwise, this is a real IO issue and we should throw it.
-            latestId = nextCompactionBatchId(latestId, compactInterval)
-            super.get(latestId).getOrElse {
-              throw e
-            }
+            throw e
         }
       } else {
         return Array.empty
