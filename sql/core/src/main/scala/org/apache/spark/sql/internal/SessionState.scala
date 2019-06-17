@@ -82,6 +82,16 @@ private[sql] class SessionState(
 
   lazy val resourceLoader: SessionResourceLoader = resourceLoaderBuilder()
 
+  @volatile private var username = System.getProperty("user.name")
+
+  def getUsername(): String = {
+    username
+  }
+
+  def setUsername(username : String) {
+    this.username = username
+  }
+
   def newHadoopConf(): Configuration = SessionState.newHadoopConf(
     sharedState.sparkContext.hadoopConfiguration,
     conf)
