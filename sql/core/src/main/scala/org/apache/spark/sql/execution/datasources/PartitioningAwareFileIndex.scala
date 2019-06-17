@@ -61,7 +61,14 @@ abstract class PartitioningAwareFileIndex(
     val selectedPartitions = if (partitionSpec().partitionColumns.isEmpty) {
       PartitionDirectory(InternalRow.empty, allFiles().filter(f => isDataPath(f.getPath))) :: Nil
     } else {
-      prunePartitions(partitionFilters, partitionSpec()).map {
+      val partitionColumns = partitionSpec().partitionColumns
+      val partitionColumnRefs : Seq[Attribute] = partitionColumns.fields.map{ field =>
+        val ar : AttributeReference = AttributeReference(field.name, field.dataType)()
+        ar
+      }
+      val inferredFilters = AdvancePartitionFilterAdaptor.prunePartitionPredicates(parameters,
+        dataFilters, partitionColumnRefs)
+      prunePartitions(partitionFilters ++ inferredFilters, partitionSpec()).map {
         case PartitionPath(values, path) =>
           val files: Seq[FileStatus] = leafDirToChildrenFiles.get(path) match {
             case Some(existingDir) =>

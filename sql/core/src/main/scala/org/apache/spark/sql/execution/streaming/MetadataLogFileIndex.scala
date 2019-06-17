@@ -17,11 +17,14 @@
 
 package org.apache.spark.sql.execution.streaming
 
+import java.util.function.BiFunction
+
 import scala.collection.mutable
 
 import org.apache.hadoop.fs.{FileStatus, Path}
 
 import org.apache.spark.sql.SparkSession
+import org.apache.spark.sql.catalyst.expressions.Expression
 import org.apache.spark.sql.execution.datasources._
 import org.apache.spark.sql.types.StructType
 
@@ -36,15 +39,20 @@ import org.apache.spark.sql.types.StructType
 class MetadataLogFileIndex(
     sparkSession: SparkSession,
     path: Path,
-    userSpecifiedSchema: Option[StructType])
-  extends PartitioningAwareFileIndex(sparkSession, Map.empty, userSpecifiedSchema) {
+    val userSpecifiedSchema: Option[StructType],
+    inputMetadataPath : Option[Path] = None,
+    val parameters: Map[String, String] = Map.empty )
+  extends PartitioningAwareFileIndex(sparkSession, parameters, userSpecifiedSchema) {
 
   private val metadataDirectory = new Path(path, FileStreamSink.metadataDir)
   logInfo(s"Reading streaming file log from $metadataDirectory")
   private val metadataLog =
     new FileStreamSinkLog(FileStreamSinkLog.VERSION, sparkSession, metadataDirectory.toUri.toString)
-  private val allFilesFromLog = metadataLog.allFiles().map(_.toFileStatus).filterNot(_.isDirectory)
+  private val (logFile, _latestId) = metadataLog.allFilesWithLatestBatchId
+  private val allFilesFromLog = logFile.map(_.toFileStatus).filterNot(_.isDirectory)
   private var cachedPartitionSpec: PartitionSpec = _
+  val latestBatchId = _latestId
+
 
   override protected val leafFiles: mutable.LinkedHashMap[Path, FileStatus] = {
     new mutable.LinkedHashMap ++= allFilesFromLog.map(f => f.getPath -> f)
