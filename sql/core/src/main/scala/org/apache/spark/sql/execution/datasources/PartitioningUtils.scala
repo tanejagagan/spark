@@ -510,6 +510,7 @@ object PartitioningUtils {
     partitionColumnsSchema(schema, partitionColumns, caseSensitive).foreach {
       field => field.dataType match {
         case _: AtomicType => // OK
+        case ArrayType(elementType, _) if elementType.isInstanceOf[IntegralType] => // OK
         case _ => throw new AnalysisException(s"Cannot use ${field.dataType} for partition column")
       }
     }

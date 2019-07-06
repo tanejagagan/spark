@@ -835,6 +835,26 @@ class CastSuite extends SparkFunSuite with ExpressionEvalHelper {
     checkEvaluation(cast("", BooleanType), null)
   }
 
+  test("string to array") {
+    val inputs = Seq(
+      ("[]", "[]"),
+      ("[ ]", "[]"),
+      ("[10, 20]", "[10, 20]"),
+      ("[010, 020]", "[10, 20]"),
+      ("[-10, -20]", "[-10, -20]"),
+      ("[-10, 0]", "[-10, 0]"),
+      ("[1,,3]", "[1,, 3]"),
+      ("[1, , 3]", "[1,, 3]"),
+      ("[1,,3,]", "[1,, 3,]"),
+      ("[,1,,3]", "[, 1,, 3]")
+    )
+
+    for((input, expected)<- inputs) {
+      val cr0 = cast(cast(input, ArrayType(IntegerType)), StringType).eval()
+      assert( cr0.toString === expected)
+    }
+  }
+
   test("SPARK-16729 type checking for casting to date type") {
     assert(cast("1234", DateType).checkInputDataTypes().isSuccess)
     assert(cast(new Timestamp(1), DateType).checkInputDataTypes().isSuccess)
