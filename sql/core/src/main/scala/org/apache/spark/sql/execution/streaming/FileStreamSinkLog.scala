@@ -39,6 +39,7 @@ import org.apache.spark.sql.internal.SQLConf
  * @param action the file action. Must be either "add" or "delete".
  */
 case class SinkFileStatus(
+    batchId : Long,
     path: String,
     size: Long,
     isDir: Boolean,
@@ -54,8 +55,9 @@ case class SinkFileStatus(
 }
 
 object SinkFileStatus {
-  def apply(f: FileStatus): SinkFileStatus = {
+  def apply(batchId: Long, f: FileStatus): SinkFileStatus = {
     SinkFileStatus(
+      batchId = batchId,
       path = f.getPath.toUri.toString,
       size = f.getLen,
       isDir = f.isDirectory,
