@@ -849,7 +849,7 @@ class CastSuite extends SparkFunSuite with ExpressionEvalHelper {
       ("[,1,,3]", "[, 1,, 3]")
     )
 
-    for((input, expected)<- inputs) {
+    for((input, expected) <- inputs) {
       val cr0 = cast(cast(input, ArrayType(IntegerType)), StringType).eval()
       assert( cr0.toString === expected)
     }

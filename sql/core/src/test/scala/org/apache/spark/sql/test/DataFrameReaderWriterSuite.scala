@@ -924,4 +924,17 @@ class DataFrameReaderWriterSuite extends QueryTest with SharedSQLContext with Be
       }
     }
   }
+
+  test("partitioned by Integer Array") {
+    withTempDir { src =>
+      val df = spark.range(0, 3).map(i => (i, Seq[Int](0, 1)))
+      df.write.mode("append").partitionBy("_2").parquet(src.getAbsolutePath.toString)
+      val schema = new StructType().add("_1", LongType).add("_2", ArrayType(IntegerType))
+      val readDf = spark.read.schema(schema).parquet(src.getAbsolutePath.toString)
+      readDf.show(100)
+      readDf.printSchema()
+      assert(readDf.count() === 3)
+    }
+  }
 }
+
