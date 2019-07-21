@@ -45,6 +45,11 @@ trait MetadataLog[T] {
    */
   def get(startId: Option[Long], endId: Option[Long]): Array[(Long, T)]
 
+  /*
+   * Return the latest batch id
+   */
+  def getLatestBatchId(): Option[Long]
+
   /**
    * Return the latest batch Id and its metadata if exist.
    */

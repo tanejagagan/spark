@@ -174,6 +174,14 @@ class HDFSMetadataLog[T <: AnyRef : ClassTag](sparkSession: SparkSession, path: 
     }
   }
 
+  override def getLatestBatchId(): Option[Long] = {
+    val batchIds = fileManager.list(metadataPath, batchFilesFilter)
+      .map(f => pathToBatchId(f.getPath))
+      .sorted
+      .reverse
+    batchIds.headOption
+  }
+
   override def getLatest(): Option[(Long, T)] = {
     val batchIds = fileManager.list(metadataPath, batchFilesFilter)
       .map(f => pathToBatchId(f.getPath))
