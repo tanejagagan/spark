@@ -194,9 +194,14 @@ class FileStreamSource(
   }
 
   private def allFilesUsingMetadataLogFileIndex() = {
+    val schemaMap = schema.fields.map( f => (f.name, f)).toMap
+    val partitionSchema = partitionColumns.map( schemaMap(_) )
     // Note if `sourceHasMetadata` holds, then `qualifiedBasePath` is guaranteed to be a
     // non-glob path
-    new MetadataLogFileIndex(sparkSession, qualifiedBasePath, None).allFiles()
+
+    new NGMetadataLogFileIndex(sparkSession, qualifiedBasePath,
+      Some(StructType(partitionSchema))
+    ).allFiles()
   }
 
   /**

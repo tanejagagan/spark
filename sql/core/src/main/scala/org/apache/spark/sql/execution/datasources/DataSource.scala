@@ -291,7 +291,8 @@ case class DataSource(
           throw new AnalysisException(
             s"Data source $className does not support $outputMode output mode")
         }
-        new FileStreamSink(sparkSession, path, fileFormat, partitionColumns, caseInsensitiveOptions)
+        new FileStreamSink(sparkSession, path, fileFormat,
+          userSpecifiedSchema.get, partitionColumns, caseInsensitiveOptions)
 
       case _ =>
         throw new UnsupportedOperationException(
@@ -333,8 +334,8 @@ case class DataSource(
             caseInsensitiveOptions.get("path").toSeq ++ paths,
             sparkSession.sessionState.newHadoopConf()) =>
         val basePath = new Path((caseInsensitiveOptions.get("path").toSeq ++ paths).head)
-        val fileCatalog = new ConcurrentMetadataLogFileIndex(sparkSession, basePath,
-          userSpecifiedSchema,
+        val fileCatalog = new NGMetadataLogFileIndex(sparkSession, basePath,
+          None,
           parameters = catalogTable.map(_.properties).getOrElse(Map()))
         val dataSchema = userSpecifiedSchema.orElse {
           format.inferSchema(

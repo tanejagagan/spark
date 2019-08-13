@@ -318,6 +318,7 @@ final class DataStreamWriter[T] private[sql](ds: Dataset[T]) {
             df.sparkSession,
             className = source,
             options = options,
+            userSpecifiedSchema = Some(df.schema),
             partitionColumns = normalizedParCols.getOrElse(Nil))
           ds.createSink(outputMode)
       }

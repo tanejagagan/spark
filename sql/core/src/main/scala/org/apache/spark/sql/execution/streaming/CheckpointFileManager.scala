@@ -83,6 +83,8 @@ trait CheckpointFileManager {
 
   /** Is the default file system this implementation is operating on the local file system. */
   def isLocal: Boolean
+
+  def isDirectory(path: Path): Boolean
 }
 
 object CheckpointFileManager extends Logging {
@@ -282,6 +284,10 @@ class FileSystemBasedCheckpointFileManager(path: Path, hadoopConf: Configuration
     case _: LocalFileSystem | _: RawLocalFileSystem => true
     case _ => false
   }
+
+  override def isDirectory(path: Path): Boolean = {
+    fs.isDirectory(path)
+  }
 }
 
 
@@ -344,6 +350,10 @@ class FileContextBasedCheckpointFileManager(path: Path, hadoopConf: Configuratio
   override def isLocal: Boolean = fc.getDefaultFileSystem match {
     case _: LocalFs | _: RawLocalFs => true // LocalFs = RawLocalFs + ChecksumFs
     case _ => false
+  }
+
+  override def isDirectory(path: Path): Boolean = {
+    fc.getFileStatus(path).isDirectory
   }
 }
 

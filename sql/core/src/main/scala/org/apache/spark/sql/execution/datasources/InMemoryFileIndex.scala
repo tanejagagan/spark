@@ -53,12 +53,18 @@ class InMemoryFileIndex(
   extends PartitioningAwareFileIndex(
     sparkSession, parameters, userSpecifiedSchema, fileStatusCache) {
 
+  val insideMetadataDir = parameters.get("inside_metatdata_dir").map(_.toBoolean).getOrElse(false)
   // Filter out streaming metadata dirs or files such as "/.../_spark_metadata" (the metadata dir)
   // or "/.../_spark_metadata/0" (a file in the metadata dir). `rootPathsSpecified` might contain
   // such streaming metadata dir or files, e.g. when after globbing "basePath/*" where "basePath"
   // is the output of a streaming query.
   override val rootPaths =
-    rootPathsSpecified.filterNot(FileStreamSink.ancestorIsMetadataDirectory(_, hadoopConf))
+    if (!insideMetadataDir) {
+     rootPathsSpecified.filterNot(
+        FileStreamSink.ancestorIsMetadataDirectory(_, hadoopConf))
+    } else {
+      rootPathsSpecified
+    }
 
   @volatile private var cachedLeafFiles: mutable.LinkedHashMap[Path, FileStatus] = _
   @volatile private var cachedLeafDirToChildrenFiles: Map[Path, Array[FileStatus]] = _

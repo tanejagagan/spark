@@ -90,7 +90,7 @@ object PartitioningUtils {
    *         path = "hdfs://<host>:<port>/path/to/partition/a=2/b=world/c=6.28")))
    * }}}
    */
-  private[datasources] def parsePartitions(
+  private[sql] def parsePartitions(
       paths: Seq[Path],
       typeInference: Boolean,
       basePaths: Set[Path],
