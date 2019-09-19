@@ -19,6 +19,7 @@ package org.apache.spark.sql.internal
 
 import java.net.URL
 import java.util.Locale
+import java.util.concurrent.ConcurrentHashMap
 
 import scala.reflect.ClassTag
 import scala.util.control.NonFatal
@@ -44,7 +45,7 @@ private[sql] class SharedState(val sparkContext: SparkContext) extends Logging {
 
   // Load hive-site.xml into hadoopConf and determine the warehouse path we want to use, based on
   // the config from both hive and Spark SQL. Finally set the warehouse config value to sparkConf.
-  val warehousePath: String = {
+  val internalWarehousePath: String = {
     val configFile = Utils.getContextOrSparkClassLoader.getResource("hive-site.xml")
     if (configFile != null) {
       logInfo(s"loading hive config file: $configFile")
@@ -75,7 +76,7 @@ private[sql] class SharedState(val sparkContext: SparkContext) extends Logging {
       sparkWarehouseDir
     }
   }
-  logInfo(s"Warehouse path is '$warehousePath'.")
+  logInfo(s"Warehouse path is '$internalWarehousePath'.")
 
 
   /**
@@ -96,39 +97,52 @@ private[sql] class SharedState(val sparkContext: SparkContext) extends Logging {
     statusStore
   }
 
-  /**
-   * A catalog that interacts with external systems.
-   */
-  lazy val externalCatalog: ExternalCatalogWithListener = {
-    val externalCatalog = SharedState.reflect[ExternalCatalog, SparkConf, Configuration](
-      SharedState.externalCatalogClassName(sparkContext.conf),
-      sparkContext.conf,
-      sparkContext.hadoopConfiguration)
+  val externalCatalogRegistry =
+    new ConcurrentHashMap[String, ExternalCatalogWithListener]()
 
-    val defaultDbDefinition = CatalogDatabase(
-      SessionCatalog.DEFAULT_DATABASE,
-      "default database",
-      CatalogUtils.stringToURI(warehousePath),
-      Map())
-    // Create default database if it doesn't exist
-    if (!externalCatalog.databaseExists(SessionCatalog.DEFAULT_DATABASE)) {
-      // There may be another Spark application creating default database at the same time, here we
-      // set `ignoreIfExists = true` to avoid `DatabaseAlreadyExists` exception.
-      externalCatalog.createDatabase(defaultDbDefinition, ignoreIfExists = true)
-    }
+  protected val externalCatalogCreateFn =
+    new java.util.function.Function[String, ExternalCatalogWithListener]() {
 
-    // Wrap to provide catalog events
-    val wrapped = new ExternalCatalogWithListener(externalCatalog)
-
-    // Make sure we propagate external catalog events to the spark listener bus
-    wrapped.addListener(new ExternalCatalogEventListener {
-      override def onEvent(event: ExternalCatalogEvent): Unit = {
-        sparkContext.listenerBus.post(event)
+    def apply(domain: String): ExternalCatalogWithListener = {
+      val externalCatalog = SharedState.reflect[ExternalCatalog,
+          SparkConf, Configuration, String](
+        SharedState.externalCatalogClassName(sparkContext.conf),
+        sparkContext.conf,
+        sparkContext.hadoopConfiguration, domain)
+      val defaultDbDefinition = CatalogDatabase(
+        SessionCatalog.DEFAULT_DATABASE,
+        "default database",
+        CatalogUtils.stringToURI(warehousePath(domain)),
+        Map())
+      // Create default database if it doesn't exist
+      if (!externalCatalog.databaseExists(SessionCatalog.DEFAULT_DATABASE)) {
+        // There may be another Spark application creating default database at the same time,
+        // here we set `ignoreIfExists = true` to avoid `DatabaseAlreadyExists` exception.
+        externalCatalog.createDatabase(defaultDbDefinition, ignoreIfExists = true)
       }
-    })
 
-    wrapped
+      // Wrap to provide catalog events
+      val wrapped = new ExternalCatalogWithListener(externalCatalog)
+
+      // Make sure we propagate external catalog events to the spark listener bus
+      wrapped.addListener( new ExternalCatalogEventListener {
+        override def onEvent(event: ExternalCatalogEvent): Unit = {
+          sparkContext.listenerBus.post(event)
+        }
+      })
+      wrapped
+    }
   }
+
+  final def externalCatalog(domain : String ): ExternalCatalogWithListener = {
+    externalCatalogRegistry.computeIfAbsent( domain, externalCatalogCreateFn)
+  }
+
+  final def externalCatalog : ExternalCatalogWithListener =
+    externalCatalog(sparkContext.conf.get(DEFAULT_SQL_DOMAIN))
+
+  final def warehousePath(domain : String): String = internalWarehousePath.replaceAll(
+    "\\$\\{domain\\}", domain)
 
   /**
    * A manager for global temporary views.
@@ -138,12 +152,13 @@ private[sql] class SharedState(val sparkContext: SparkContext) extends Logging {
     // for every session, because case-sensitivity differs. Here we always lowercase it to make our
     // life easier.
     val globalTempDB = sparkContext.conf.get(GLOBAL_TEMP_DATABASE).toLowerCase(Locale.ROOT)
-    if (externalCatalog.databaseExists(globalTempDB)) {
-      throw new SparkException(
-        s"$globalTempDB is a system preserved database, please rename your existing database " +
-          "to resolve the name conflict, or set a different value for " +
-          s"${GLOBAL_TEMP_DATABASE.key}, and launch your Spark application again.")
-    }
+    // if (externalCatalog.databaseExists(globalTempDB)) {
+    //   throw new SparkException(
+    //    s"$globalTempDB is a system preserved database, please rename your existing database " +
+    //      "to resolve the name conflict, or set a different value for " +
+    //      s"${GLOBAL_TEMP_DATABASE.key}, and launch your Spark application again.")
+    // }
+
     new GlobalTempViewManager(globalTempDB)
   }
 
@@ -186,6 +201,26 @@ object SharedState extends Logging {
       val clazz = Utils.classForName(className)
       val ctor = clazz.getDeclaredConstructor(ctorArgTag1.runtimeClass, ctorArgTag2.runtimeClass)
       val args = Array[AnyRef](ctorArg1, ctorArg2)
+      ctor.newInstance(args: _*).asInstanceOf[T]
+    } catch {
+      case NonFatal(e) =>
+        throw new IllegalArgumentException(s"Error while instantiating '$className':", e)
+    }
+  }
+
+  private def reflect[T, Arg1 <: AnyRef, Arg2 <: AnyRef, Arg3 <: AnyRef](
+                                                          className: String,
+                                                          ctorArg1: Arg1,
+                                                          ctorArg2: Arg2,
+                                                          ctorArg3 : Arg3)(
+                                                          implicit ctorArgTag1: ClassTag[Arg1],
+                                                          ctorArgTag2: ClassTag[Arg2],
+                                                          ctorArgTag3: ClassTag[Arg3]): T = {
+    try {
+      val clazz = Utils.classForName(className)
+      val ctor = clazz.getDeclaredConstructor(ctorArgTag1.runtimeClass, ctorArgTag2.runtimeClass,
+        ctorArgTag3.runtimeClass)
+      val args = Array[AnyRef](ctorArg1, ctorArg2, ctorArg3)
       ctor.newInstance(args: _*).asInstanceOf[T]
     } catch {
       case NonFatal(e) =>

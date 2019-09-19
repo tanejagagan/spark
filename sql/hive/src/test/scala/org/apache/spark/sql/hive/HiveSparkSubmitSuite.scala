@@ -32,7 +32,8 @@ import org.apache.spark.sql.catalyst.catalog._
 import org.apache.spark.sql.execution.command.DDLUtils
 import org.apache.spark.sql.expressions.Window
 import org.apache.spark.sql.hive.test.{TestHive, TestHiveContext}
-import org.apache.spark.sql.types.{DecimalType, StructType}
+import org.apache.spark.sql.internal.StaticSQLConf
+import org.apache.spark.sql.types.{DecimalType, StringType, StructType}
 import org.apache.spark.util.{ResetSystemProperties, Utils}
 
 /**
@@ -325,6 +326,19 @@ class HiveSparkSubmitSuite
       "--conf", "spark.master.rest.enabled=false",
       unusedJar.toString)
     runSparkSubmit(argsForShowTables)
+  }
+
+  test("Multi catalog support") {
+    val unusedJar = TestUtils.createJarWithClasses(Seq.empty)
+    val args = Seq(
+      "--class", HIVE_MULTI_CATALOG.getClass.getName.stripSuffix("$"),
+      "--name", "PermanentHiveUDFTest1",
+      "--master", "local-cluster[2,1,1024]",
+      "--conf", "spark.ui.enabled=false",
+      "--conf", "spark.master.rest.enabled=false",
+      "--driver-java-options", "-Dderby.system.durability=test",
+      unusedJar.toString)
+    runSparkSubmit(args)
   }
 }
 
@@ -775,10 +789,16 @@ object SPARK_18360 {
   def main(args: Array[String]): Unit = {
     val spark = SparkSession.builder()
       .config("spark.ui.enabled", "false")
+      .master("local")
       .enableHiveSupport().getOrCreate()
 
     val defaultDbLocation = spark.catalog.getDatabase("default").locationUri
-    assert(new Path(defaultDbLocation) == new Path(spark.sharedState.warehousePath))
+    val warehousePath = spark.sessionState.conf.warehousePath
+    val warehousePathState = spark.sharedState.warehousePath(
+      StaticSQLConf.DEFAULT_SQL_DOMAIN.defaultValue.get)
+    assert(new Path(defaultDbLocation) == new Path(spark.sessionState.conf.warehousePath),
+        s"$defaultDbLocation and $warehousePath and $warehousePathState"
+    )
 
     val hiveClient =
       spark.sharedState.externalCatalog.unwrapped.asInstanceOf[HiveExternalCatalog].client
@@ -834,5 +854,43 @@ object SPARK_18989_DESC_TABLE {
     } finally {
       spark.sql("DROP TABLE IF EXISTS base64_tbl")
     }
+  }
+}
+
+object HIVE_MULTI_CATALOG {
+  val tableSchema: StructType = (new StructType()).
+    add("key", StringType).
+    add("value", StringType)
+  val schemaName = "multi_catalog"
+  val table = "table1"
+
+  def main(args: Array[String]): Unit = {
+    val metastoreLocation = Utils.createTempDir()
+    metastoreLocation.delete()
+    val path = metastoreLocation.getAbsolutePath
+    val metastoreURL =
+      "jdbc:derby:memory:;databaseName=" + path + "${domain};create=true"
+    val spark = SparkSession.builder()
+      .config("javax.jdo.option.ConnectionURL", metastoreURL)
+      .enableHiveSupport()
+      .getOrCreate()
+
+    val session1 = spark.cloneSession()
+    session1.sessionState.setDomain("spark1")
+    session1.sql(s"create database $schemaName")
+    session1.catalog.createTable(s"$schemaName.$table",
+      "parquet",
+      tableSchema,
+      Map[String, String]())
+    session1.catalog.listTables()
+
+    val session2 = spark.cloneSession()
+    session2.sessionState.setDomain("spark2")
+    session2.sql(s"create database $schemaName")
+    session2.catalog.createTable(s"$schemaName.$table",
+      "parquet",
+      tableSchema,
+      Map[String, String]())
+    session2.catalog.listTables()
   }
 }

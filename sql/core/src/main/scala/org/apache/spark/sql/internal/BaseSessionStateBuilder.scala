@@ -130,7 +130,9 @@ abstract class BaseSessionStateBuilder(
    */
   protected lazy val catalog: SessionCatalog = {
     val catalog = new SessionCatalog(
-      () => session.sharedState.externalCatalog,
+      () => {
+        session.sharedState.externalCatalog(session.sessionState.getDomain())
+      },
       () => session.sharedState.globalTempViewManager,
       functionRegistry,
       conf,

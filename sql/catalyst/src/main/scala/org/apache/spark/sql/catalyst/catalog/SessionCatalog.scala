@@ -38,7 +38,7 @@ import org.apache.spark.sql.catalyst.expressions.{Expression, ExpressionInfo, Im
 import org.apache.spark.sql.catalyst.parser.{CatalystSqlParser, ParserInterface}
 import org.apache.spark.sql.catalyst.plans.logical.{LogicalPlan, SubqueryAlias, View}
 import org.apache.spark.sql.catalyst.util.StringUtils
-import org.apache.spark.sql.internal.SQLConf
+import org.apache.spark.sql.internal.{SQLConf, StaticSQLConf}
 import org.apache.spark.sql.types.StructType
 import org.apache.spark.util.Utils
 
@@ -270,9 +270,10 @@ class SessionCatalog(
    * Get the path for creating a non-default database when database location is not provided
    * by users.
    */
-  def getDefaultDBPath(db: String): URI = {
+  def getDefaultDBPath(db: String,
+                       domain : String = StaticSQLConf.DEFAULT_SQL_DOMAIN.defaultValue.get): URI = {
     val database = formatDatabaseName(db)
-    new Path(new Path(conf.warehousePath), database + ".db").toUri
+    new Path(new Path(conf.warehousePath(domain)), database + ".db").toUri
   }
 
   // ----------------------------------------------------------------------------

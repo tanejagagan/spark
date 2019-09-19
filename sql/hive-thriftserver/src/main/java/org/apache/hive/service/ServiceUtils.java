@@ -30,15 +30,17 @@ public class ServiceUtils {
     if (userName == null) {
       return -1;
     }
-
-    int idx = userName.indexOf('/');
-    int idx2 = userName.indexOf('@');
-    int endIdx = Math.min(idx, idx2); // Use the earlier match.
-    // Unless at least one of '/' or '@' was not found, in
-    // which case, user the latter match.
-    if (endIdx == -1) {
-      endIdx = Math.max(idx, idx2);
-    }
-    return endIdx;
+    return userName.indexOf('/');
+    /*
+     * int idx = userName.indexOf('/');
+     * int idx2 = userName.indexOf('@');
+     * int endIdx = Math.min(idx, idx2); // Use the earlier match.
+     * // Unless at least one of '/' or '@' was not found, in
+     * // which case, user the latter match.
+     * if (endIdx == -1) {
+     *  endIdx = Math.max(idx, idx2);
+     * }
+     * return endIdx;
+     */
   }
 }

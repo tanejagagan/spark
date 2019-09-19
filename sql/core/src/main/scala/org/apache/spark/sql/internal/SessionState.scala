@@ -22,7 +22,6 @@ import java.io.File
 import org.apache.hadoop.conf.Configuration
 import org.apache.hadoop.fs.Path
 
-import org.apache.spark.SparkContext
 import org.apache.spark.annotation.{Experimental, InterfaceStability}
 import org.apache.spark.sql._
 import org.apache.spark.sql.catalyst.analysis.{Analyzer, FunctionRegistry}
@@ -31,6 +30,7 @@ import org.apache.spark.sql.catalyst.optimizer.Optimizer
 import org.apache.spark.sql.catalyst.parser.ParserInterface
 import org.apache.spark.sql.catalyst.plans.logical.LogicalPlan
 import org.apache.spark.sql.execution._
+import org.apache.spark.sql.internal.StaticSQLConf.DEFAULT_SQL_DOMAIN
 import org.apache.spark.sql.streaming.StreamingQueryManager
 import org.apache.spark.sql.util.{ExecutionListenerManager, QueryExecutionListener}
 
@@ -84,12 +84,36 @@ private[sql] class SessionState(
 
   @volatile private var username = System.getProperty("user.name")
 
+  @volatile private var domain : String = sharedState.sparkContext.conf.get(DEFAULT_SQL_DOMAIN)
+
   def getUsername(): String = {
     username
   }
 
   def setUsername(username : String) {
     this.username = username
+  }
+
+  def setDomain(domain : String): Unit = {
+    this.domain = domain
+  }
+
+  def getDomain(): String = {
+    this.domain
+  }
+
+
+  def setUserAndDomain(userAndDomain: String): Unit = {
+    val atIndex = userAndDomain.indexOf("@")
+    if (atIndex > 0) {
+      val ud = userAndDomain.split("@")
+      assert(ud.size == 2,
+        s"Incorrect format only one '@' is expected. Provide $userAndDomain ")
+      setUsername(ud(0))
+      setDomain(ud(1))
+    } else {
+      setUsername(userAndDomain)
+    }
   }
 
   def newHadoopConf(): Configuration = SessionState.newHadoopConf(

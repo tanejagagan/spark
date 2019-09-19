@@ -1840,7 +1840,12 @@ class SQLConf extends Serializable with Logging {
 
   def variableSubstituteDepth: Int = getConf(VARIABLE_SUBSTITUTE_DEPTH)
 
-  def warehousePath: String = new Path(getConf(StaticSQLConf.WAREHOUSE_PATH)).toString
+  def warehousePath : String = warehousePath( StaticSQLConf.DEFAULT_SQL_DOMAIN.defaultValue.get )
+
+  def warehousePath(domain : String ): String = {
+    new Path(getConf(StaticSQLConf.WAREHOUSE_PATH).replaceAll(
+      "\\$\\{domain\\}", domain)).toString
+  }
 
   def hiveThriftServerSingleSession: Boolean =
     getConf(StaticSQLConf.HIVE_THRIFT_SERVER_SINGLESESSION)
