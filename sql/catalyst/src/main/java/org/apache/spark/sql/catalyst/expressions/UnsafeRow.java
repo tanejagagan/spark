@@ -63,6 +63,10 @@ public final class UnsafeRow extends InternalRow implements Externalizable, Kryo
 
   public static final int WORD_SIZE = 8;
 
+  public static final int VERSION_AND_FIELD_OVERHEAD = 4;
+
+  public static final int EXTERNAL_SERIALIZATION_OVERHEAD = 4 + VERSION_AND_FIELD_OVERHEAD;
+
   //////////////////////////////////////////////////////////////////////////////
   // Static methods
   //////////////////////////////////////////////////////////////////////////////
@@ -679,5 +683,53 @@ public final class UnsafeRow extends InternalRow implements Externalizable, Kryo
     this.bitSetWidthInBytes = calculateBitSetWidthInBytes(numFields);
     this.baseObject = new byte[sizeInBytes];
     in.read((byte[]) baseObject);
+  }
+
+  /*
+   *  --------------------------------------------------------------------------------
+   * |(int) unsaferow lenght + 4 | (short) version | (short) num Fields | the row ... |
+   *  --------------------------------------------------------------------------------
+   */
+  public static byte[] writeExternal(UnsafeRow uRow) {
+    short version = 1 ;
+    byte[] bytes = new byte[uRow.getSizeInBytes() + EXTERNAL_SERIALIZATION_OVERHEAD];
+    ByteBuffer buffer = ByteBuffer.wrap(bytes);
+    int externalSize = uRow.getSizeInBytes() + VERSION_AND_FIELD_OVERHEAD;
+    buffer.putInt(externalSize);
+    buffer.putShort(version);
+    buffer.putShort((short)uRow.numFields());
+    uRow.writeTo(buffer);
+    return bytes;
+  }
+
+  public static UnsafeRow readInternal(ByteBuffer buffer, UnsafeRow unsafeRow) {
+    int externalSize = buffer.getInt();
+    int version = buffer.getShort();
+    int numFields = buffer.getShort();
+    int sizeInBytes = externalSize - VERSION_AND_FIELD_OVERHEAD;
+    UnsafeRow uRow;
+    if (unsafeRow.numFields() == numFields) {
+      uRow = unsafeRow;
+    } else {
+      uRow = new UnsafeRow(numFields);
+    }
+    byte[] target = buffer.array();
+    int bufferOffset = buffer.arrayOffset();
+    int pos = buffer.position();
+    uRow.pointTo(target, Platform.BYTE_ARRAY_OFFSET + bufferOffset + pos, sizeInBytes);
+    return uRow;
+  }
+
+  public static UnsafeRow readExternal(byte[] bytes ) {
+    ByteBuffer buffer = ByteBuffer.wrap(bytes);
+    int externalSize = buffer.getInt();
+    short version  = buffer.getShort();
+    int numFields = buffer.getShort();
+    int sizeInBytes = externalSize - VERSION_AND_FIELD_OVERHEAD;
+    byte[] bb = new byte[sizeInBytes];
+    buffer.get(bb);
+    UnsafeRow uRow = new UnsafeRow(numFields);
+    uRow.pointTo(bb, sizeInBytes);
+    return uRow;
   }
 }
