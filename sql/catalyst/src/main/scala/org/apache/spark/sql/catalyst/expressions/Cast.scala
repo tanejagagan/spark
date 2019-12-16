@@ -575,6 +575,32 @@ case class Cast(child: Expression, dataType: DataType, timeZoneId: Option[String
     })
   }
 
+  private[this] def castStringToArray( toType: DataType): Any => Any = {
+    val elementCast = cast(StringType, toType)
+    // TODO: Could be faster?
+    buildCast[UTF8String](_, s => {
+      val str = s.toString
+      val array = str.split(",")
+
+      array(0) = array(0).substring(array(0).indexOf('[') + 1)
+      val lastIndex = array.size - 1
+      array(lastIndex) = array(lastIndex).substring(0, array(lastIndex).lastIndexOf(']'))
+      val values = new Array[Any](array.size)
+      var i = 0 ;
+      while (i < array.size) {
+        val x = array(i).trim
+        if (x == null || x =="" || x.equals("null")) {
+          values(i) = null
+        } else {
+          val toAdd = elementCast(UTF8String.fromString(x))
+          values(i) = toAdd
+        }
+        i += 1
+      }
+      new GenericArrayData(values)
+    })
+  }
+
   private[this] def castMap(from: MapType, to: MapType): Any => Any = {
     val keyCast = castArray(from.keyType, to.keyType)
     val valueCast = castArray(from.valueType, to.valueType)
@@ -629,6 +655,8 @@ case class Cast(child: Expression, dataType: DataType, timeZoneId: Option[String
         case FloatType => castToFloat(from)
         case LongType => castToLong(from)
         case DoubleType => castToDouble(from)
+        case array: ArrayType if (from == StringType) =>
+          castStringToArray(array.elementType)
         case array: ArrayType =>
           castArray(from.asInstanceOf[ArrayType].elementType, array.elementType)
         case map: MapType => castMap(from.asInstanceOf[MapType], map)

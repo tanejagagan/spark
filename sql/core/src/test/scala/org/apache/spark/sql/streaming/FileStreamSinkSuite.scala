@@ -102,6 +102,7 @@ class FileStreamSinkSuite extends StreamTest {
         query.processAllAvailable()
       }
       val outputDf = spark.read.parquet(outputDir)
+      outputDf.show()
       checkDatasetUnorderly(outputDf.as[(Int, String)], ("hello world".length, "hello world"))
     } finally {
       query.stop()
@@ -144,7 +145,7 @@ class FileStreamSinkSuite extends StreamTest {
         case LogicalRelation(baseRelation: HadoopFsRelation, _, _, _) => baseRelation
       }
       assert(hadoopdFsRelations.size === 1)
-      assert(hadoopdFsRelations.head.location.isInstanceOf[MetadataLogFileIndex])
+      assert(hadoopdFsRelations.head.location.isInstanceOf[NGMetadataLogFileIndex])
       assert(hadoopdFsRelations.head.partitionSchema.exists(_.name == "id"))
       assert(hadoopdFsRelations.head.dataSchema.exists(_.name == "value"))
 
@@ -269,7 +270,7 @@ class FileStreamSinkSuite extends StreamTest {
           .selectExpr(
             "CAST(start as BIGINT) AS start",
             "CAST(end as BIGINT) AS end",
-            "count")
+            "count").orderBy("start")
         checkDataset(
           outputDf.as[(Long, Long, Long)],
           expectedResult.map(x => (x._1._1, x._1._2, x._2)): _*)
@@ -442,7 +443,7 @@ class FileStreamSinkSuite extends StreamTest {
             spark.sparkContext.listenerBus.waitUntilEmpty(streamingTimeout.toMillis)
 
             assert(numTasks > 0)
-            assert(recordsWritten === 5)
+            assert(recordsWritten === 7)
             // This is heavily file type/version specific but should be filled
             assert(bytesWritten > 0)
           } finally {

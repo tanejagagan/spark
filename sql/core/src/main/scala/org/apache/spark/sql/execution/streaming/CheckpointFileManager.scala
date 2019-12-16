@@ -83,6 +83,8 @@ trait CheckpointFileManager {
 
   /** Is the default file system this implementation is operating on the local file system. */
   def isLocal: Boolean
+
+  def isDirectory(path: Path): Boolean
 }
 
 object CheckpointFileManager extends Logging {
@@ -282,6 +284,10 @@ class FileSystemBasedCheckpointFileManager(path: Path, hadoopConf: Configuration
     case _: LocalFileSystem | _: RawLocalFileSystem => true
     case _ => false
   }
+
+  override def isDirectory(path: Path): Boolean = {
+    fs.isDirectory(path)
+  }
 }
 
 
@@ -358,6 +364,10 @@ class FileContextBasedCheckpointFileManager(path: Path, hadoopConf: Configuratio
     } catch {
       case NonFatal(_) => // ignore, we are removing crc file as "best-effort"
     }
+  }
+
+  override def isDirectory(path: Path): Boolean = {
+    fc.getFileStatus(path).isDirectory
   }
 }
 

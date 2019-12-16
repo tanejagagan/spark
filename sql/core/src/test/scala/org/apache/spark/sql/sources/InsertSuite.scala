@@ -589,4 +589,87 @@ class InsertSuite extends DataSourceTest with SharedSQLContext {
       sql("INSERT INTO TABLE test_table SELECT 2, null")
     }
   }
+
+  test("Streaming insert with map query") {
+    val sourceTable = "stream_source1"
+    val view = "view1"
+    val viewSql = s"""
+                  |CREATE OR REPLACE VIEW $view AS
+                  |select *, concat(k, v)  from $sourceTable""".stripMargin
+    testInsertStreamWithView(sourceTable, view, viewSql)
+  }
+
+  test("Streaming insert with aggregate query") {
+    val sourceTable = "stream_source2"
+    val view = "view2"
+    val viewSql =
+      s"""
+         |CREATE OR REPLACE VIEW $view AS
+         |SELECT cast(k1 as string) k, cast(v1 as string) v, 'kv' kv
+         |FROM ( select count(k)  k1, count(v) v1 from $sourceTable)""".stripMargin
+    // testInsertStreamWithView(sourceTable, view, viewSql)
+  }
+
+  private def testInsertStreamWithView(sourceTable : String,
+                                       view : String,
+                                       viewSql : String): Unit = {
+    withTable(sourceTable) {
+      withTable("stream_sink") {
+        withView(view) {
+          withTempPaths(3) { paths =>
+            val source = paths(0)
+            val sink = paths(1)
+            val checkpointLocation = paths(2)
+            val firstBatch = Seq(("k1", "v1"), ("k2", "v2"), ("k3", "v3"))
+            val secondBatch = Seq(("k4", "v4"), ("k5", "v5"), ("k6", "v6"))
+            val schema =
+                (new StructType())
+                .add("k", StringType)
+                .add("v", StringType)
+            def addData(batch : Seq[(String, String)]) {
+              val df = spark.createDataFrame(spark.createDataFrame(batch).rdd, schema)
+              df.write.mode("append") parquet (source.getAbsolutePath)
+            }
+
+            addData(firstBatch)
+
+            val sourceSql =
+              s"""
+                |create table $sourceTable(k string, v string)
+                |using parquet
+                |options ('streamingInput'='true')
+                |location '${source.getAbsolutePath}'
+              """.stripMargin
+
+            val sinkSql =
+              s"""
+                | create table stream_sink(k string, v  string, kv string)
+                | using parquet
+                | options('checkpointLocation'='$checkpointLocation', 'stream-source'='stream_sink')
+                | location '${sink.getAbsolutePath}'
+                | partitioned by (kv)""".stripMargin
+
+            val insertSql =
+              s"""
+                |INSERT INTO TABLE stream_sink SELECT * FROM $view
+              """.stripMargin
+
+            spark.sql(sourceSql)
+            spark.sql(viewSql)
+            spark.sql(sinkSql)
+            spark.sql(insertSql)
+            checkAnswer( spark.read.parquet(sink.getAbsolutePath),
+              spark.read.table(view))
+
+            addData(secondBatch)
+            spark.sql(insertSql)
+            spark.sql(s"refresh table $sourceTable")
+
+            checkAnswer(
+              spark.read.parquet(sink.getAbsolutePath), spark.read.table(view))
+          }
+        }
+      }
+    }
+  }
 }

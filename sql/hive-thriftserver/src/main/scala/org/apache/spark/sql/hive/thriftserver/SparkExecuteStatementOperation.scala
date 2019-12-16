@@ -275,6 +275,7 @@ private[hive] class SparkExecuteStatementOperation(
   override def cancel(): Unit = {
     logInfo(s"Cancel '$statement' with $statementId")
     cleanup(OperationState.CANCELED)
+    HiveThriftServer2.listener.onStatementCancel(statementId)
   }
 
   private def cleanup(state: OperationState) {

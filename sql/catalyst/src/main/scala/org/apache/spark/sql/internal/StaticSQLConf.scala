@@ -31,7 +31,7 @@ object StaticSQLConf {
   val WAREHOUSE_PATH = buildStaticConf("spark.sql.warehouse.dir")
     .doc("The default location for managed databases and tables.")
     .stringConf
-    .createWithDefault(Utils.resolveURI("spark-warehouse").toString)
+    .createWithDefault(Utils.resolveURI("").toString + "${domain}-warehouse")
 
   val CATALOG_IMPLEMENTATION = buildStaticConf("spark.sql.catalogImplementation")
     .internal()
@@ -125,5 +125,13 @@ object StaticSQLConf {
       .doc("Number of executions to retain in the Spark UI.")
       .intConf
       .createWithDefault(1000)
+
+  val DEFAULT_SQL_DOMAIN =
+    buildStaticConf("spark.sql.default.domain")
+      .doc("Default domain to spark Session." +
+        "This can be used to configure multiple catalog in the backend")
+      .stringConf
+      .createWithDefault("spark")
+
 
 }

@@ -36,7 +36,7 @@ private[sql] object PruneFileSourcePartitions extends Rule[LogicalPlan] {
               _,
               _),
             _,
-            _,
+            oCatalog,
             _))
         if filters.nonEmpty && fsRelation.partitionSchemaOption.isDefined =>
       // The attribute name of predicate could be different than the one in schema in case of
@@ -58,9 +58,14 @@ private[sql] object PruneFileSourcePartitions extends Rule[LogicalPlan] {
         ExpressionSet(normalizedFilters
           .filterNot(SubqueryExpression.hasSubquery(_))
           .filter(_.references.subsetOf(partitionSet)))
+      val advancePartitionFilters =
+        AdvancePartitionFilterAdaptor.prunePartitionPredicates(oCatalog,
+          normalizedFilters.toSeq, partitionColumns
+        )
+      val allPartitionFilters = partitionKeyFilters.toSeq ++ advancePartitionFilters
 
-      if (partitionKeyFilters.nonEmpty) {
-        val prunedFileIndex = catalogFileIndex.filterPartitions(partitionKeyFilters.toSeq)
+      if (allPartitionFilters.nonEmpty) {
+        val prunedFileIndex = catalogFileIndex.filterPartitions(allPartitionFilters)
         val prunedFsRelation =
           fsRelation.copy(location = prunedFileIndex)(sparkSession)
         // Change table stats based on the sizeInBytes of pruned files

@@ -40,14 +40,14 @@ class ManifestFileCommitProtocol(jobId: String, path: String)
   // Track the list of files added by a task, only used on the executors.
   @transient private var addedFiles: ArrayBuffer[String] = _
 
-  @transient private var fileLog: FileStreamSinkLog = _
+  @transient private var fileLog: NGFileStreamSinkLog = _
   private var batchId: Long = _
 
   /**
    * Sets up the manifest log output and the batch id for this job.
    * Must be called before any other function.
    */
-  def setupManifestOptions(fileLog: FileStreamSinkLog, batchId: Long): Unit = {
+  def setupManifestOptions(fileLog: NGFileStreamSinkLog, batchId: Long): Unit = {
     this.fileLog = fileLog
     this.batchId = batchId
   }
@@ -106,7 +106,7 @@ class ManifestFileCommitProtocol(jobId: String, path: String)
     if (addedFiles.nonEmpty) {
       val fs = new Path(addedFiles.head).getFileSystem(taskContext.getConfiguration)
       val statuses: Seq[SinkFileStatus] =
-        addedFiles.map(f => SinkFileStatus(fs.getFileStatus(new Path(f))))
+        addedFiles.map(f => SinkFileStatus(batchId, fs.getFileStatus(new Path(f))))
       new TaskCommitMessage(statuses)
     } else {
       new TaskCommitMessage(Seq.empty[SinkFileStatus])

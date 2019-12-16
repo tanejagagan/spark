@@ -174,6 +174,32 @@ class HDFSMetadataLog[T <: AnyRef : ClassTag](sparkSession: SparkSession, path: 
     }
   }
 
+  override def getLatestBatchId(): Option[Long] = {
+    val batchIds = fileManager.list(metadataPath, batchFilesFilter)
+      .map(f => (pathToBatchId(f.getPath), f))
+      .sortBy(_._1)
+      .reverse
+
+    batchIds.headOption match {
+      case None =>
+        None
+      case Some((id, f)) =>
+        val isDir = fileManager.isDirectory(f.getPath)
+        if (isDir) {
+          // Check of the file is written completely
+          val successPath = new Path(f.getPath, "_SUCCESS")
+          if(fileManager.exists(successPath)) {
+            Some(id)
+          }
+          else {
+            batchIds.tail.headOption.map(_._1)
+          }
+        } else {
+          Some(id)
+        }
+    }
+  }
+
   override def getLatest(): Option[(Long, T)] = {
     val batchIds = fileManager.list(metadataPath, batchFilesFilter)
       .map(f => pathToBatchId(f.getPath))

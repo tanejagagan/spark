@@ -43,7 +43,7 @@ import org.apache.spark.sql.catalyst.util.CaseInsensitiveMap
 import org.apache.spark.sql.execution.command.DDLUtils
 import org.apache.spark.sql.execution.datasources.{PartitioningUtils, SourceOptions}
 import org.apache.spark.sql.hive.client.HiveClient
-import org.apache.spark.sql.internal.HiveSerDe
+import org.apache.spark.sql.internal.{HiveSerDe, StaticSQLConf}
 import org.apache.spark.sql.internal.StaticSQLConf._
 import org.apache.spark.sql.types.{DataType, StructType}
 
@@ -52,7 +52,8 @@ import org.apache.spark.sql.types.{DataType, StructType}
  * A persistent implementation of the system catalog using Hive.
  * All public methods must be synchronized for thread-safety.
  */
-private[spark] class HiveExternalCatalog(conf: SparkConf, hadoopConf: Configuration)
+private[spark] class HiveExternalCatalog(conf: SparkConf, hadoopConf: Configuration,
+    domain : String = StaticSQLConf.DEFAULT_SQL_DOMAIN.defaultValue.get)
   extends ExternalCatalog with Logging {
 
   import CatalogTypes.TablePartitionSpec
@@ -63,7 +64,7 @@ private[spark] class HiveExternalCatalog(conf: SparkConf, hadoopConf: Configurat
    * A Hive client used to interact with the metastore.
    */
   lazy val client: HiveClient = {
-    HiveUtils.newClientForMetadata(conf, hadoopConf)
+    HiveUtils.newClientForMetadata(conf, hadoopConf, domain)
   }
 
   // Exceptions thrown by the hive client that we would like to wrap

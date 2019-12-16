@@ -134,7 +134,8 @@ private[hive] class HiveMetastoreCatalog(sparkSession: SparkSession) extends Log
         // Partitioned tables without partitions use the location of the table's base path.
         // Partitioned tables with partitions use the locations of those partitions' data
         // locations,_omitting_ the table's base path.
-        val paths = sparkSession.sharedState.externalCatalog
+        val paths = sparkSession.sharedState.externalCatalog(
+              sparkSession.sessionState.getDomain())
           .listPartitions(tableIdentifier.database, tableIdentifier.name)
           .map(p => new Path(p.storage.locationUri.get))
 
