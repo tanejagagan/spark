@@ -240,6 +240,7 @@ object FunctionRegistry {
     expression[Log1p]("log1p"),
     expression[Log2]("log2"),
     expression[Log]("ln"),
+    expression[OffsetBounds]("offset_bounds"),
     expression[Remainder]("mod"),
     expression[UnaryMinus]("negative"),
     expression[Pi]("pi"),
