@@ -86,11 +86,15 @@ abstract class BaseKafkaUnsafeRelationSuite extends QueryTest with SharedSQLCont
     }
   }
 
-  def sendMessage(topic: String, numPartition: Int): Map[Int, Seq[ResultVerify]] = {
-    val seq = for (partition <- 0 to (numPartition - 1)) yield {
-      testUtils.sendMessages(topic, partition, testKeyValueMsgs.toArray)
+  def sendMessage(topic: String, numPartition: Int,
+                  batch : Int = 1): Map[Int, Seq[ResultVerify]] = {
+    val array = testKeyValueMsgs.toArray
+    val seq = for (b <- (0 to batch -1);
+                   partition <- 0 to (numPartition - 1)) yield {
+      testUtils.sendMessages(topic, partition, array )
       (partition, testKeyValueMsgs.zipWithIndex.map { case (x, index) =>
-        new ResultVerify(new Key(index), new Value(index), topic, partition, index.toLong)
+        new ResultVerify(new Key(index), new Value(index), topic, partition,
+          (b* testKeyMsgs.size) + index.toLong)
       }.toSeq)
     }
     seq.toMap
@@ -142,6 +146,22 @@ class KafkaUnsafeRelationSuite extends BaseKafkaUnsafeRelationSuite {
       .orderBy("partition", "offset")
     checkAnswer(select, (toVerify(0) ++ toVerify(1)).toDS().toDF())
   }
+
+  test("Performance with million rows") {
+    val topic = newTopic()
+    val partitions = 4
+    val batches = 500
+    testUtils.createTopic(topic, partitions = partitions)
+    val df = createDF(topic, partitions,
+      withOptions = Map())
+    assert(df.count() === 0)
+    val toVerify = sendMessage(topic, partitions, batches)
+    assert(df.count() === (batches * partitions  * testKeyValueMsgs.size ))
+    assert(
+      df.selectExpr( "count(distinct partition, offset)")
+        .collect().head.getAs[Long](0) ===  (batches * partitions  * testKeyValueMsgs.size ))
+  }
+
 
   test("Run sql with partition filters") {
     val topic = newTopic()

@@ -35,7 +35,11 @@ import org.apache.spark.internal.Logging
 
 case class ResponseOffset(offset: Long, timestamp: Long)
 
-class KafkaException(ex: Exception) extends Exception
+class KafkaException(ex: Exception ) extends RuntimeException {
+  def this(str : String ) = this(new Exception(str))
+  def this(str : String, exception : Exception) = this(exception)
+}
+
 
 object KafkaDirectConsumer extends Logging {
 
@@ -138,7 +142,8 @@ object KafkaDirectConsumer extends Logging {
                 topicPartition: TopicPartition,
                 startFetchOffset: Long,
                 endFetchOffset: Long,
-                responseBuffer: ByteBuffer): AbstractIterator[_ <: RecordBatch] = {
+                responseBuffer: ByteBuffer):
+  (RequestHeader, FetchResponse.PartitionData[Records]) = {
     try {
 
       val requestHeader = new RequestHeader(ApiKeys.FETCH, ApiKeys.FETCH.latestVersion(),
@@ -158,8 +163,8 @@ object KafkaDirectConsumer extends Logging {
       val responseBody = parseResponse(requestHeader, responseBuffer)
       val response = responseBody.asInstanceOf[FetchResponse[Records]]
 
-      val topicPartitionEntries = response.responseData().get(topicPartition)
-      topicPartitionEntries.records.batchIterator()
+      (requestHeader, response.responseData().get(topicPartition))
+      // topicPartitionEntries.records.batchIterator()
     } catch {
       case ex: Exception => throw new KafkaException(ex)
     }
@@ -183,7 +188,7 @@ object KafkaDirectConsumer extends Logging {
   }
 
   def parseResponse(requestHeader: RequestHeader, responseBuffer: ByteBuffer): AbstractResponse = {
-    ResponseHeader.parse(responseBuffer)
+    val header = ResponseHeader.parse(responseBuffer)
     val responseStruct = requestHeader.apiKey().parseResponse(requestHeader.apiVersion(),
       responseBuffer)
     AbstractResponse.parseResponse(requestHeader.apiKey, responseStruct, requestHeader.apiVersion)
