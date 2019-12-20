@@ -21,6 +21,8 @@ import java.util.stream.Collectors;
 public enum KafkaConsumerClientRegistry {
     INSTANCE ;
 
+    public static int MIN_RECEIVE_BUFFER_SIZE = 16 * 1024 * 1024 ;
+    public static int FETCH_MAX_BYTE_CONFIG = 16 * 1024 * 1024 ;
     ConcurrentMap<String, ConsumerNetworkClient> cache  = new ConcurrentHashMap<>();
 
     public ConsumerNetworkClient getOrCreate(Collection<String> bootstreapServers,
@@ -37,7 +39,12 @@ public enum KafkaConsumerClientRegistry {
         map.put("key.deserializer", ByteArraySerializer.class.getName());
         map.put("value.deserializer", ByteArraySerializer.class.getName());
         map.put("bootstrap.servers", bootstrapServer);
-        map.put("receive.buffer.bytes", 16 * 1024 * 1024);
+        Object rcvBufferSize = map.get(ConsumerConfig.RECEIVE_BUFFER_CONFIG);
+
+        if(rcvBufferSize== null || Integer.parseInt(rcvBufferSize.toString()) > MIN_RECEIVE_BUFFER_SIZE) {
+            map.put(ConsumerConfig.RECEIVE_BUFFER_CONFIG, MIN_RECEIVE_BUFFER_SIZE);
+        }
+        map.put(ConsumerConfig.RECEIVE_BUFFER_CONFIG, 16 * 1024 * 1024);
         ConsumerConfig config = new ConsumerConfig(map);
         org.apache.kafka.common.metrics.Metrics metrics = new org.apache.kafka.common.metrics.Metrics();
         String metricGrpPrefix = map.get("consumer.id").toString();
@@ -49,7 +56,7 @@ public enum KafkaConsumerClientRegistry {
         FetcherMetricsRegistry metricsRegistry = new FetcherMetricsRegistry(Collections.emptySet(),
                 metricGrpPrefix);
         Sensor throttleTimeSensor = Fetcher.throttleTimeSensor(metrics, metricsRegistry);
-        LogContext logContext = new LogContext("[Consumer clientId=" + clientId + ", groupId=10"  + "] ");
+        LogContext logContext = new LogContext("[Consumer clientId=" + clientId +  "]");
         SubscriptionState subscriptions = new SubscriptionState(logContext, OffsetResetStrategy.NONE );
         ClusterResourceListeners clusterResourceListeners = new ClusterResourceListeners();
         long retryBackoffMs = config.getLong(ConsumerConfig.RETRY_BACKOFF_MS_CONFIG);

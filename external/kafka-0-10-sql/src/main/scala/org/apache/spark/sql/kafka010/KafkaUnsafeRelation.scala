@@ -19,10 +19,9 @@ package org.apache.spark.sql.kafka010
 
 import java.util.{Locale, Properties}
 
-import org.apache.kafka.clients.consumer.internals.ConsumerNetworkClient
-
 import scala.collection.JavaConverters._
 
+import org.apache.kafka.clients.consumer.internals.ConsumerNetworkClient
 import org.apache.kafka.common.TopicPartition
 
 import org.apache.spark.internal.Logging
@@ -38,6 +37,8 @@ object KafkaUnsafeRelation {
   val kafkaOffsetCol = "offset"
   val kafkaTopicCol = "topic"
   val kafkaTimestampCol = "timestamp"
+  val EARLIEST_OFFSET = -2L
+  val LATEST_OFFSET = -1L
 
   val fixedSchema = StructType(
     Seq(
@@ -51,8 +52,7 @@ object KafkaUnsafeRelation {
    * 2. Get the offsets
    *
    */
-  def resolvePartitionsAndOffsets(connectionPool: ConnectionPool[KafkaConnection],
-                                  consumerClient : ConsumerNetworkClient,
+  def resolvePartitionsAndOffsets(consumerClient : ConsumerNetworkClient,
                                   topic: String,
                                   partitions: Option[Seq[Int]],
                                   filters: Seq[Expression]):
@@ -62,8 +62,7 @@ object KafkaUnsafeRelation {
     val ob = offsetBounds(topic, filters)
     val earliestOffsetBound: Option[Map[TopicPartition, Long]] = ob._1
     val latestOffsetBounds: Option[Map[TopicPartition, Long]] = ob._2
-    val connection = connectionPool.getConnection
-    try {
+
       val partitionSet = partitions.map( _.toSet)
       val allPartitions = KafkaUnsafeFetcher.getPartitions(consumerClient, topic).filter{ pm =>
         partitionSet match {
@@ -77,7 +76,8 @@ object KafkaUnsafeRelation {
         a.partition()))
 
       val offsetToFetch = filteredTopicPartition.map { tp =>
-        (tp -> timeEarliestOffsetBound.getOrElse(-2L), tp -> timeLatestOffsetBounds.getOrElse(-1L))
+        (tp -> timeEarliestOffsetBound.getOrElse(EARLIEST_OFFSET),
+          tp -> timeLatestOffsetBounds.getOrElse(LATEST_OFFSET))
       }
 
       val earliestFromBroker = KafkaUnsafeFetcher
@@ -106,14 +106,6 @@ object KafkaUnsafeRelation {
           meta.isr().asScala.map(new Node(_)),
           tp, earliestOffsets(tp), latestOffsets(tp), None)
       }
-    } catch {
-      case ex: KafkaException => connectionPool.markForRecovery(connection)
-        throw new RuntimeException(ex)
-      case ex : Exception =>
-        throw new RuntimeException(ex)
-    } finally {
-      connectionPool.releaseConnection(connection)
-    }
   }
 
   def filterPartitions(filters : Seq[Expression],
@@ -263,14 +255,12 @@ private[kafka010] class KafkaUnsafeRelation(
     val bootstrapServerStr = executorKafkaParams.get("bootstrap.servers")
     bootstrapServerStr.toString.split(",").foreach( bootstrapServers.add(_))
 
-    val connectionPool = KafkaConnectionPool.getOrCreate(10,
-      new KafkaConnectionPoolConfig(bootstrapServers, "spark-master"))
     val props = new Properties()
     props.putAll(executorKafkaParams)
     val consumerClient = KafkaConsumerClientRegistry.INSTANCE.getOrCreate(
       bootstrapServers, props
     )
-    val offsets = KafkaUnsafeRelation.resolvePartitionsAndOffsets(connectionPool, consumerClient,
+    val offsets = KafkaUnsafeRelation.resolvePartitionsAndOffsets(consumerClient,
       topic, partitions, filters)
 
     val rdd = new KafkaUnsafeSourceRDD(
