@@ -22,7 +22,7 @@ import java.nio.channels.SocketChannel;
 import java.util.*;
 import java.util.stream.Collectors;
 
-
+@Deprecated
 public class ConnectionPoolImpl<I, T> implements ConnectionPool<T> {
     private final int maxSize;
     private final I inputMetadata;

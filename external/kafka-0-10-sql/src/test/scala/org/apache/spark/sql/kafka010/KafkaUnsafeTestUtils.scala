@@ -22,7 +22,6 @@ import java.util.Properties
 
 import org.apache.kafka.clients.producer.{KafkaProducer, Producer, ProducerRecord}
 import org.apache.kafka.common.serialization.ByteArraySerializer
-
 import org.apache.spark.sql.catalyst.json.UnsafeJsonEncoder
 import org.apache.spark.sql.types._
 
@@ -140,15 +139,43 @@ class KafkaUnsafeTestUtils(withBrokerProps: Map[String, Object] = Map.empty)
     // producer.commitTransaction()
   }
 
-  def sendMessages(topic: String, partition: Int, keyValues: Seq[(Array[Byte], Array[Byte])]) {
-    val producer: Producer[Array[Byte], Array[Byte]] =
-      new KafkaProducer[Array[Byte], Array[Byte]](producerConfiguration)
-    // producer.beginTransaction()
+  def sendMessages( producer : KafkaProducer[Array[Byte], Array[Byte]], topic : String,
+                   keyValues: Seq[(Array[Byte], Array[Byte])]): Unit = {
     keyValues.foreach { x =>
-      producer.send(new ProducerRecord[Array[Byte], Array[Byte]](topic,
-        partition, x._1, x._2))
+      producer.send(new ProducerRecord[Array[Byte], Array[Byte]](topic, x._1, x._2))
     }
+  }
+
+  def withNewProducer[T]( op : KafkaProducer[Array[Byte], Array[Byte]] => T) : T = {
+      val producer = new KafkaProducer[Array[Byte], Array[Byte]](producerConfiguration)
+      val res = op(producer)
+      producer.close()
+    res
+  }
+
+  def withNewTxnProducer[T] ( op : KafkaProducer[Array[Byte], Array[Byte]] => T) : T = {
+    val producer = new KafkaProducer[Array[Byte], Array[Byte]](producerConfiguration)
+    val res = op(producer)
     producer.close()
+    res
+  }
+
+  def sendMessages(producer : KafkaProducer[Array[Byte], Array[Byte]],
+    topic: String, partition: Int, keyValues: Seq[(Array[Byte], Array[Byte])]) {
+      keyValues.foreach { x =>
+        producer.send(new ProducerRecord[Array[Byte], Array[Byte]](topic,
+          partition, x._1, x._2))
+    }
+  }
+
+  def sendMessages(topic: String, partition: Int, keyValues: Seq[(Array[Byte], Array[Byte])]) {
+    withNewProducer { producer =>
+      // producer.beginTransaction()
+      keyValues.foreach { x =>
+        producer.send(new ProducerRecord[Array[Byte], Array[Byte]](topic,
+          partition, x._1, x._2))
+      }
+    }
     // producer.commitTransaction()
   }
 

@@ -19,6 +19,7 @@ package org.apache.spark.sql.kafka010;
 
 import java.io.IOException;
 
+@Deprecated
 public interface ConnectionPool<T> {
     T getConnection() throws InterruptedException, IOException;
     boolean releaseConnection(T t);

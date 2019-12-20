@@ -24,6 +24,7 @@ import java.util.*;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 
+@Deprecated
 class KafkaConnection {
     public final SocketChannel channel;
     public final String hostPort ;
@@ -37,6 +38,7 @@ class KafkaConnection {
     }
 }
 
+@Deprecated
 class KafkaConnectionPoolConfig {
     public final List<String> bootstrapServers;
     public final String connectionIdStart;
@@ -46,6 +48,7 @@ class KafkaConnectionPoolConfig {
     }
 }
 
+@Deprecated
 public class KafkaConnectionPool extends ConnectionPoolImpl<KafkaConnectionPoolConfig, KafkaConnection> {
 
     //private static AtomicInteger clientIdCounter = new AtomicInteger();

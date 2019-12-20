@@ -19,14 +19,14 @@ package org.apache.spark.sql.kafka010
 
 
 import java.nio.ByteBuffer
+import java.util.Properties
 import java.{util => ju}
 
-import org.apache.kafka.clients.consumer.internals.FetcherMetricsRegistry
+import org.apache.kafka.clients.consumer.internals.{ConsumerNetworkClient, FetcherMetricsRegistry}
 import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.metrics.Metrics
-import org.apache.kafka.common.record.{Record, RecordBatch, Records}
+import org.apache.kafka.common.record.Records
 import org.apache.kafka.common.requests.{FetchResponse, RequestHeader}
-import org.apache.kafka.common.utils.AbstractIterator
 
 import org.apache.spark.{Partition, SparkContext, TaskContext}
 import org.apache.spark.rdd.RDD
@@ -36,8 +36,17 @@ import org.apache.spark.util.NextIterator
 
 
 
-case class KafkaUnsafeSourceRDDOffsetRange( partitionLeader : String,
-                                            isr : Seq[String],
+case class Node(id : Int, host : String, port : Int, rack : String ) {
+
+  def this(node : org.apache.kafka.common.Node) =
+    this(node.id(), node.host(), node.port(), node.rack())
+  def toKNode : org.apache.kafka.common.Node = {
+    new org.apache.kafka.common.Node(id, host, port, rack)
+  }
+}
+
+case class KafkaUnsafeSourceRDDOffsetRange( partitionLeader : Node,
+                                            isr : Seq[Node],
                                             topicPartition: TopicPartition,
                                             fromOffset: Long,
                                             untilOffset: Long,
@@ -116,7 +125,8 @@ private[kafka010] class KafkaUnsafeSourceRDD(
       val underlying = new KafkaUnsafeIterator(
         bufferSize.toString.toInt, sourcePartition,
         numKeyFields,
-        bootstrapServers, projectionMapping)
+        bootstrapServers, executorKafkaParams,
+        projectionMapping)
 
       // Release consumer, either by removing it or indicating we're no longer using it
       context.addTaskCompletionListener[Unit] { _ =>
@@ -127,103 +137,13 @@ private[kafka010] class KafkaUnsafeSourceRDD(
   }
 }
 
-@deprecated("use KafkaUnsafeIterator")
-class KafkaUnsafeIteratorDeprecated(bufferSize : Int,
-                          sourcePartition : KafkaUnsafeSourceRDDPartition,
-                          numKeyFields : Int,
-                          bootstrapServers : java.util.List[String],
-                          projectionMapping : Option[Array[Int]] = None)
-  extends NextIterator[InternalRow]() {
-
-  @transient lazy val buffer = ByteBuffer.allocate(bufferSize.toString.toInt)
-  val range = sourcePartition.offsetRange
-  val startClientId = "unsafe-row-iterator"
-  val kafkaConnectionPool = KafkaConnectionPool.getOrCreate(10,
-    new KafkaConnectionPoolConfig(bootstrapServers, startClientId));
-  var requestOffset = range.fromOffset
-  var nextBatches = getNextBatches()
-  var nextBatch = getNextBatch()
-  val kafkaUnsafeRow = new KafkaUnsafeRow(sourcePartition.offsetRange.topic,
-    sourcePartition.offsetRange.partition, numKeyFields)
-  val kafkaProjectedUnsafeRow = projectionMapping.map { p =>
-    val pp = new KafkaProjectedUnsafeRow(p)
-    pp.pointsTo(kafkaUnsafeRow)
-    pp
-  }.getOrElse(kafkaUnsafeRow)
-
-
-  def getNextBatches() : AbstractIterator[_<:RecordBatch] = {
-    var res : AbstractIterator[_<:RecordBatch] = null
-    val connectionMeta = kafkaConnectionPool.getConnection
-    try {
-      res = KafkaDirectConsumer.sendFetch(connectionMeta.channel, connectionMeta.hostPort,
-        connectionMeta.correlationIdCounter.getAndIncrement(), connectionMeta.hostPort,
-        sourcePartition.offsetRange.topicPartition, requestOffset,
-        sourcePartition.offsetRange.untilOffset, buffer)._2.records.batchIterator()
-    } catch {
-      case ex : Exception => kafkaConnectionPool.markForRecovery(connectionMeta)
-        throw new RuntimeException(ex)
-    } finally {
-      kafkaConnectionPool.releaseConnection(connectionMeta)
-    }
-    res ;
-  }
-
-  def getNextBatch() : java.util.Iterator[Record] = {
-    if (nextBatches.hasNext) {
-      nextBatches.next().iterator()
-    } else {
-      nextBatches = getNextBatches()
-      nextBatches.next().iterator()
-    }
-  }
-
-  private def readNext = {
-    if (nextBatch.hasNext()) {
-      nextBatch.next()
-    } else {
-      nextBatch = getNextBatch()
-      nextBatch.next()
-    }
-  }
-
-
-  override def getNext(): InternalRow = {
-    if (requestOffset >= range.untilOffset) {
-      // Processed all offsets in this partition.
-      finished = true
-      null
-    } else {
-      var r = readNext
-      while(r.offset() < requestOffset) {
-        r = readNext
-      }
-
-      if (r == null) {
-        // Losing some data. Skip the rest offsets in this partition.
-        finished = true
-        null
-      } else {
-        requestOffset = r.offset + 1
-        kafkaUnsafeRow.pointsTo(r.offset(), r.timestamp(),
-          !r.hasKey, r.key(), !r.hasValue, r.value())
-        // kafkaUnsafeRow
-        kafkaProjectedUnsafeRow
-      }
-    }
-  }
-
-  override protected def close(): Unit = {
-
-  }
-
-}
 
 
 class KafkaUnsafeIterator(bufferSize : Int,
                           sourcePartition : KafkaUnsafeSourceRDDPartition,
                           numKeyFields : Int,
                           bootstrapServers : java.util.List[String],
+                          executorKafkaParams : ju.Map[String, Object],
                           projectionMapping : Option[Array[Int]] = None)
   extends NextIterator[InternalRow]() {
 
@@ -234,6 +154,10 @@ class KafkaUnsafeIterator(bufferSize : Int,
     new KafkaConnectionPoolConfig(bootstrapServers, startClientId));
   var requestOffset = range.fromOffset
   var currentPartitionRecords : PartitionRecords = _
+  val props = new Properties()
+  props.putAll(executorKafkaParams)
+  var consumerNetworkClient : ConsumerNetworkClient =
+    KafkaConsumerClientRegistry.INSTANCE.getOrCreate( bootstrapServers, props )
   val kafkaUnsafeRow = new KafkaUnsafeRow(sourcePartition.offsetRange.topic,
     sourcePartition.offsetRange.partition, numKeyFields)
   val kafkaProjectedUnsafeRow = projectionMapping.map { p =>
@@ -253,14 +177,29 @@ class KafkaUnsafeIterator(bufferSize : Int,
   val agg = new PartitionRecords.FetchResponseMetricAggregator(managerMetrics, partitionSet)
 
 
-  private def getNextBatchesV2 = {
+  private def getNextBatches = {
     var res : (RequestHeader, FetchResponse.PartitionData[Records]) = null
     val connectionMeta = kafkaConnectionPool.getConnection
     try {
-      res = KafkaDirectConsumer.sendFetch(connectionMeta.channel, connectionMeta.hostPort,
+      val config = new ju.Properties()
+      config.putAll(executorKafkaParams)
+
+      val response = KafkaUnsafeFetcher.sendFetch( consumerNetworkClient,
+        sourcePartition.offsetRange.partitionLeader.toKNode,
+        sourcePartition.offsetRange.topicPartition,
+        requestOffset,
+        sourcePartition.offsetRange.untilOffset,
+        buffer.capacity())
+      res = (response.requestHeader(),
+      response.responseBody()
+        .asInstanceOf[FetchResponse[Records]]
+        .responseData().get(sourcePartition.offsetRange.topicPartition))
+      /*res = KafkaDirectConsumer.sendFetch(connectionMeta.channel, connectionMeta.hostPort,
         connectionMeta.correlationIdCounter.getAndIncrement(), connectionMeta.hostPort,
         sourcePartition.offsetRange.topicPartition, requestOffset,
         sourcePartition.offsetRange.untilOffset, buffer)
+
+       */
     } catch {
       case ex : Exception => kafkaConnectionPool.markForRecovery(connectionMeta)
         throw new RuntimeException(ex)
@@ -272,11 +211,11 @@ class KafkaUnsafeIterator(bufferSize : Int,
 
   private def readNext = {
     if (currentPartitionRecords == null) {
-      currentPartitionRecords = getNextBatchesV2
+      currentPartitionRecords = getNextBatches
     }
     var next = currentPartitionRecords.nextFetchedRecord()
     if(next == null) {
-      currentPartitionRecords = getNextBatchesV2
+      currentPartitionRecords = getNextBatches
       next = currentPartitionRecords.nextFetchedRecord()
     }
     next
@@ -324,7 +263,6 @@ class KafkaUnsafeIterator(bufferSize : Int,
     val  batches = partitionData.records.batches().iterator()
     new PartitionRecords(sourcePartition.offsetRange.topicPartition,
       cFetch, batches)
-
   }
 }
 
