@@ -19,6 +19,7 @@ package org.apache.spark.sql.kafka010;
 
 import java.io.IOException;
 
+@Deprecated
 public interface ConnectionCreator<I, R> {
     R create(I input) throws IOException ;
 }

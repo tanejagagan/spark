@@ -18,13 +18,14 @@
 package org.apache.spark.sql.kafka010
 
 import java.nio.ByteBuffer
-import java.util.{ArrayList => JArrayList}
+import java.util
+import java.util.{ArrayList => JArrayList, Collections, Properties}
 import java.util.concurrent.atomic.AtomicInteger
 
 import org.apache.kafka.common.TopicPartition
 
 import org.apache.spark.sql.QueryTest
-import org.apache.spark.sql.catalyst.expressions.{ Expression, Literal, Or}
+import org.apache.spark.sql.catalyst.expressions.{Expression, Literal, Or}
 import org.apache.spark.sql.test.SharedSQLContext
 import org.apache.spark.sql.types.StructType
 
@@ -87,17 +88,19 @@ abstract class BaseKafkaUnsafeRelationSuite extends QueryTest with SharedSQLCont
   }
 
   def sendMessage(topic: String, numPartition: Int,
-                  batch : Int = 1): Map[Int, Seq[ResultVerify]] = {
-    val array = testKeyValueMsgs.toArray
-    val seq = for (b <- (0 to batch -1);
-                   partition <- 0 to (numPartition - 1)) yield {
-      testUtils.sendMessages(topic, partition, array )
-      (partition, testKeyValueMsgs.zipWithIndex.map { case (x, index) =>
-        new ResultVerify(new Key(index), new Value(index), topic, partition,
-          (b* testKeyMsgs.size) + index.toLong)
-      }.toSeq)
+                  batch: Int = 1): Map[Int, Seq[ResultVerify]] = {
+    testUtils.withNewProducer { p =>
+      val array = testKeyValueMsgs.toArray
+      val seq = for (b <- (0 to batch - 1);
+                     partition <- 0 to (numPartition - 1)) yield {
+        testUtils.sendMessages(p, topic, partition, array)
+        (partition, testKeyValueMsgs.zipWithIndex.map { case (x, index) =>
+          new ResultVerify(new Key(index), new Value(index), topic, partition,
+            (b * testKeyMsgs.size) + index.toLong)
+        }.toSeq)
+      }
+      seq.toMap
     }
-    seq.toMap
   }
 
   protected def newTopic(): String = s"${topicPrefix}-${topicId.getAndIncrement()}"
@@ -112,6 +115,7 @@ abstract class BaseKafkaUnsafeRelationSuite extends QueryTest with SharedSQLCont
       .format("org.apache.spark.sql.kafka010.KafkaUnsafeRelationProvider")
       .schema(keyValueSchema)
       .option("kafka.bootstrap.servers", brokerAddress.getOrElse(testUtils.brokerAddress))
+      .option("kafka.consumer.id", "test-consumer-id")
       .option("key-columns", "keyStr, keyInt")
       .option("topic", topic)
 
@@ -156,10 +160,10 @@ class KafkaUnsafeRelationSuite extends BaseKafkaUnsafeRelationSuite {
       withOptions = Map())
     assert(df.count() === 0)
     val toVerify = sendMessage(topic, partitions, batches)
-    assert(df.count() === (batches * partitions  * testKeyValueMsgs.size ))
+    assert(df.count() === (batches * partitions * testKeyValueMsgs.size))
     assert(
-      df.selectExpr( "count(distinct partition, offset)")
-        .collect().head.getAs[Long](0) ===  (batches * partitions  * testKeyValueMsgs.size ))
+      df.selectExpr("count(distinct partition, offset)")
+        .collect().head.getAs[Long](0) === (batches * partitions * testKeyValueMsgs.size))
   }
 
 
@@ -214,61 +218,61 @@ class KafkaUnsafeRelationSuite extends BaseKafkaUnsafeRelationSuite {
     val lowerBound = 123L
     val upperBound = 230L
     import org.apache.spark.sql.catalyst.dsl.expressions._
-    val lowerBounds : Seq[Expression] = Seq('timestamp > lowerBound expr,
+    val lowerBounds: Seq[Expression] = Seq('timestamp > lowerBound expr,
       'timestamp >= lowerBound expr,
-      Literal(123) < 'timestamp, Literal(123) <= 'timestamp )
+      Literal(123) < 'timestamp, Literal(123) <= 'timestamp)
 
     lowerBounds.foreach { expr =>
       val res = KafkaUnsafeRelation.timeBounds(Seq(expr))
       assert(res === ((Some(lowerBound), None)))
     }
 
-    val multiLowerBounds : Seq[Expression] = Seq('timestamp > lowerBound expr,
+    val multiLowerBounds: Seq[Expression] = Seq('timestamp > lowerBound expr,
       'timestamp >= (lowerBound + 1) expr,
-      Literal(lowerBound + 2) < 'timestamp, Literal(lowerBound + 3) <= 'timestamp )
+      Literal(lowerBound + 2) < 'timestamp, Literal(lowerBound + 3) <= 'timestamp)
 
     val mlRes = KafkaUnsafeRelation.timeBounds(multiLowerBounds)
     assert(mlRes === ((Some(lowerBound + 3), None)))
 
-    val upperBounds : Seq[Expression] = Seq('timestamp < 230 expr, 'timestamp <= 230 expr,
-      Literal(230) > 'timestamp, Literal(230) >= 'timestamp )
+    val upperBounds: Seq[Expression] = Seq('timestamp < 230 expr, 'timestamp <= 230 expr,
+      Literal(230) > 'timestamp, Literal(230) >= 'timestamp)
 
-    upperBounds.foreach{ expr =>
+    upperBounds.foreach { expr =>
       val res = KafkaUnsafeRelation.timeBounds(Seq(expr))
       assert(res === ((None, Some(upperBound + 1))))
     }
 
-    val multiUpperBound  : Seq[Expression] = Seq('timestamp < upperBound expr,
-      'timestamp <= (upperBound -1) expr,
-      Literal(upperBound -2) > 'timestamp, Literal(upperBound -3) >= 'timestamp )
+    val multiUpperBound: Seq[Expression] = Seq('timestamp < upperBound expr,
+      'timestamp <= (upperBound - 1) expr,
+      Literal(upperBound - 2) > 'timestamp, Literal(upperBound - 3) >= 'timestamp)
 
     val muRes = KafkaUnsafeRelation.timeBounds(multiUpperBound)
-    assert(muRes === ((None, Some(upperBound -2))))
+    assert(muRes === ((None, Some(upperBound - 2))))
 
-    val equalBounds : Seq[Expression] = Seq('timestamp === lowerBound expr,
+    val equalBounds: Seq[Expression] = Seq('timestamp === lowerBound expr,
       Literal(lowerBound) === 'timestamp)
 
-    equalBounds.foreach{ expr =>
+    equalBounds.foreach { expr =>
       val res = KafkaUnsafeRelation.timeBounds(Seq(expr))
       assert(res === ((Some(lowerBound), Some(lowerBound + 1))))
     }
 
-    val lowerAndUpperBounds : Seq[Seq[Expression]] =
+    val lowerAndUpperBounds: Seq[Seq[Expression]] =
       Seq(Seq('timestamp > lowerBound expr, 'timestamp < upperBound expr),
-         Seq('timestamp >= lowerBound expr, 'timestamp <= upperBound expr),
-         Seq('timestamp <= upperBound expr, Literal(lowerBound) < 'timestamp  expr),
-         Seq('timestamp <= upperBound expr, Literal(lowerBound) <= 'timestamp expr))
+        Seq('timestamp >= lowerBound expr, 'timestamp <= upperBound expr),
+        Seq('timestamp <= upperBound expr, Literal(lowerBound) < 'timestamp expr),
+        Seq('timestamp <= upperBound expr, Literal(lowerBound) <= 'timestamp expr))
 
     lowerAndUpperBounds.foreach { x =>
       val resMulti = KafkaUnsafeRelation.timeBounds(x)
       assert(resMulti === ((Some(lowerBound), Some(upperBound + 1))))
     }
 
-    val lowerAndUpperBoundsComplex : Seq[Expression] =
+    val lowerAndUpperBoundsComplex: Seq[Expression] =
       Seq('timestamp > lowerBound or 'timestamp < upperBound expr,
         'timestamp >= lowerBound or 'timestamp <= upperBound expr,
         Or('timestamp <= upperBound expr, Literal(lowerBound) < 'timestamp),
-        Or('timestamp <= upperBound expr, Literal(lowerBound) <= 'timestamp ))
+        Or('timestamp <= upperBound expr, Literal(lowerBound) <= 'timestamp))
 
     lowerAndUpperBoundsComplex.foreach { x =>
       val resMulti = KafkaUnsafeRelation.timeBounds(Seq(x))
@@ -277,7 +281,7 @@ class KafkaUnsafeRelationSuite extends BaseKafkaUnsafeRelationSuite {
 
     val multiUpperLowerBound = multiUpperBound ++ multiLowerBounds
     val mluRes = KafkaUnsafeRelation.timeBounds(multiUpperLowerBound)
-    assert(mluRes.=== ((Some(lowerBound + 3), Some(upperBound -2))))
+    assert(mluRes.===((Some(lowerBound + 3), Some(upperBound - 2))))
   }
 
 
@@ -290,12 +294,17 @@ class KafkaUnsafeRelationSuite extends BaseKafkaUnsafeRelationSuite {
     testUtils.sendMessages(topic, testKeyValueMsgs.toArray)
     val bufferSize = 1024 * 1024
     val numKeyFields = 2
+    val config = new util.Properties()
+    val map = new java.util.HashMap[String, Object]();
+
+    val consumerClient = KafkaConsumerClientRegistry.INSTANCE.getOrCreate(bootstrapServers, config)
     for (maxOffset <- 2 to testKeyValueMsgs.size) {
       val sourcePartition = KafkaUnsafeSourceRDDPartition(0,
-        KafkaUnsafeSourceRDDOffsetRange("localhost",
-          Seq("localhost"), new TopicPartition(topic, 0), 0, maxOffset, None))
+        KafkaUnsafeSourceRDDOffsetRange(new Node(consumerClient.leastLoadedNode()),
+          Seq(new Node(consumerClient.leastLoadedNode())),
+          new TopicPartition(topic, 0), 0, maxOffset, None))
       val iterator = new KafkaUnsafeIterator(bufferSize,
-        sourcePartition, numKeyFields, bootstrapServers)
+        sourcePartition, numKeyFields, bootstrapServers, map)
       var count = 0L;
       while (iterator.hasNext) {
         val next = iterator.next()
@@ -314,13 +323,16 @@ class KafkaUnsafeRelationSuite extends BaseKafkaUnsafeRelationSuite {
     testUtils.sendMessages(topic, testKeyValueMsgs.toArray)
     val bufferSize = 1024 * 1024
     val numKeyFields = 2
+    val config = new util.Properties()
+    val map = new java.util.HashMap[String, Object]();
+    val consumerClient = KafkaConsumerClientRegistry.INSTANCE.getOrCreate(bootstrapServers, config)
     for (minOffset <- 0 to testKeyValueMsgs.size - 1) {
       val sourcePartition = KafkaUnsafeSourceRDDPartition(0,
-        KafkaUnsafeSourceRDDOffsetRange("localhost",
-          Seq("localhost"), new TopicPartition(topic, 0), minOffset,
+        KafkaUnsafeSourceRDDOffsetRange(new Node(consumerClient.leastLoadedNode()),
+          Seq(new Node(consumerClient.leastLoadedNode())), new TopicPartition(topic, 0), minOffset,
           testKeyValueMsgs.size, None))
       val iterator = new KafkaUnsafeIterator(bufferSize,
-        sourcePartition, numKeyFields, bootstrapServers)
+        sourcePartition, numKeyFields, bootstrapServers, map)
       var count = 0L;
       while (iterator.hasNext) {
         val next = iterator.next()
@@ -340,12 +352,16 @@ class KafkaUnsafeRelationSuite extends BaseKafkaUnsafeRelationSuite {
 
     val bufferSize = 1024 * 1024
     val numKeyFields = 2
+    val config = new util.Properties()
+    val map = new java.util.HashMap[String, Object]();
+    val consumerClient = KafkaConsumerClientRegistry.INSTANCE.getOrCreate(bootstrapServers, config)
 
     val sourcePartition = KafkaUnsafeSourceRDDPartition(0,
-      KafkaUnsafeSourceRDDOffsetRange("localhost",
-        Seq("localhost"), new TopicPartition(topic, 0), 0, testKeyValueMsgs.size, None))
+      KafkaUnsafeSourceRDDOffsetRange(new Node(consumerClient.leastLoadedNode()),
+        Seq(new Node(consumerClient.leastLoadedNode())),
+        new TopicPartition(topic, 0), 0, testKeyValueMsgs.size, None))
     val iterator = new KafkaUnsafeIterator(bufferSize,
-      sourcePartition, numKeyFields, bootstrapServers)
+      sourcePartition, numKeyFields, bootstrapServers, map)
     while (iterator.hasNext) {
       val next = iterator.next()
       assert(next.getUTF8String(4).toString.startsWith("key"))
@@ -355,7 +371,7 @@ class KafkaUnsafeRelationSuite extends BaseKafkaUnsafeRelationSuite {
     }
 
     val mappedIterator = new KafkaUnsafeIterator(bufferSize,
-      sourcePartition, numKeyFields, bootstrapServers, Some((0 to 7).reverse.toArray))
+      sourcePartition, numKeyFields, bootstrapServers, map, Some((0 to 7).reverse.toArray))
     while (mappedIterator.hasNext) {
       val next = mappedIterator.next()
       assert(next.getUTF8String(3).toString.startsWith("key"))
@@ -375,15 +391,18 @@ class KafkaUnsafeRelationSuite extends BaseKafkaUnsafeRelationSuite {
     val startClientId = "offset-test"
     val kafkaConnectionPool = KafkaConnectionPool.getOrCreate(10,
       new KafkaConnectionPoolConfig(bootstrapServers, startClientId));
+
     val connection = kafkaConnectionPool.getConnection()
     val buffer = ByteBuffer.allocate(4096)
     val tp = new TopicPartition(topic, 0)
+    val lconnection = getTestClientConnection()
     try {
-      val earliest = KafkaDirectConsumer.earliestOffsets(connection,
+      val partitions = KafkaUnsafeFetcher.getPartitions(lconnection, topic)
+      val earliest = KafkaUnsafeFetcher.earliestOffsets(lconnection, partitions,
         Seq(tp))
       assert(earliest == Map(tp -> ResponseOffset(0, -1)))
 
-      val latest = KafkaDirectConsumer.latestOffsets(connection,
+      val latest = KafkaUnsafeFetcher.latestOffsets(lconnection, partitions,
         Seq(tp))
       assert(latest == Map(tp -> ResponseOffset(10, -1)))
       val timestamp = System.currentTimeMillis()
@@ -391,11 +410,11 @@ class KafkaUnsafeRelationSuite extends BaseKafkaUnsafeRelationSuite {
       Thread.sleep(sleepMills)
       testUtils.sendMessages(topic, testKeyValueMsgs.toArray)
 
-      val latest2 = KafkaDirectConsumer.latestOffsets(connection,
+      val latest2 = KafkaUnsafeFetcher.latestOffsets(lconnection, partitions,
         Seq(tp))
       Thread.sleep(sleepMills)
       testUtils.sendMessages(topic, testKeyValueMsgs.toArray)
-      val timestampOffsets = KafkaDirectConsumer.offsetsForTimestamp(connection,
+      val timestampOffsets = KafkaUnsafeFetcher.offsetsForTimestamp(lconnection, partitions,
         Map(tp -> timestamp))
       val offsets = timestampOffsets.map(e => e._1 -> e._2.offset)
       assert(offsets === Map(tp -> 10))
@@ -403,5 +422,13 @@ class KafkaUnsafeRelationSuite extends BaseKafkaUnsafeRelationSuite {
     } finally {
       kafkaConnectionPool.releaseConnection(connection)
     }
+  }
+
+  private def getTestClientConnection() = {
+    val bootstrapServers = new JArrayList[String]();
+    bootstrapServers.add(testUtils.brokerAddress)
+    val properties = new Properties()
+    properties.put("kafka.consumer.id", "test-consumer-id")
+    KafkaConsumerClientRegistry.INSTANCE.getOrCreate(bootstrapServers, properties)
   }
 }
