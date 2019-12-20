@@ -32,7 +32,9 @@ import org.apache.kafka.common.utils.CloseableIterator;
 
 import java.util.*;
 
-
+/*
+ This logic is shamelessly copies from Kafka PartitionRecords
+ */
 public class PartitionRecords {
     private final TopicPartition partition;
     private final CompletedFetch completedFetch;

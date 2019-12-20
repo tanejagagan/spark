@@ -303,8 +303,7 @@ class KafkaUnsafeRelationSuite extends BaseKafkaUnsafeRelationSuite {
         KafkaUnsafeSourceRDDOffsetRange(new Node(consumerClient.leastLoadedNode()),
           Seq(new Node(consumerClient.leastLoadedNode())),
           new TopicPartition(topic, 0), 0, maxOffset, None))
-      val iterator = new KafkaUnsafeIterator(bufferSize,
-        sourcePartition, numKeyFields, bootstrapServers, map)
+      val iterator = new KafkaUnsafeIterator( sourcePartition, numKeyFields, bootstrapServers, map)
       var count = 0L;
       while (iterator.hasNext) {
         val next = iterator.next()
@@ -331,8 +330,7 @@ class KafkaUnsafeRelationSuite extends BaseKafkaUnsafeRelationSuite {
         KafkaUnsafeSourceRDDOffsetRange(new Node(consumerClient.leastLoadedNode()),
           Seq(new Node(consumerClient.leastLoadedNode())), new TopicPartition(topic, 0), minOffset,
           testKeyValueMsgs.size, None))
-      val iterator = new KafkaUnsafeIterator(bufferSize,
-        sourcePartition, numKeyFields, bootstrapServers, map)
+      val iterator = new KafkaUnsafeIterator( sourcePartition, numKeyFields, bootstrapServers, map)
       var count = 0L;
       while (iterator.hasNext) {
         val next = iterator.next()
@@ -360,8 +358,7 @@ class KafkaUnsafeRelationSuite extends BaseKafkaUnsafeRelationSuite {
       KafkaUnsafeSourceRDDOffsetRange(new Node(consumerClient.leastLoadedNode()),
         Seq(new Node(consumerClient.leastLoadedNode())),
         new TopicPartition(topic, 0), 0, testKeyValueMsgs.size, None))
-    val iterator = new KafkaUnsafeIterator(bufferSize,
-      sourcePartition, numKeyFields, bootstrapServers, map)
+    val iterator = new KafkaUnsafeIterator( sourcePartition, numKeyFields, bootstrapServers, map)
     while (iterator.hasNext) {
       val next = iterator.next()
       assert(next.getUTF8String(4).toString.startsWith("key"))
@@ -370,7 +367,7 @@ class KafkaUnsafeRelationSuite extends BaseKafkaUnsafeRelationSuite {
       assert(next.getInt(7) > -1)
     }
 
-    val mappedIterator = new KafkaUnsafeIterator(bufferSize,
+    val mappedIterator = new KafkaUnsafeIterator(
       sourcePartition, numKeyFields, bootstrapServers, map, Some((0 to 7).reverse.toArray))
     while (mappedIterator.hasNext) {
       val next = mappedIterator.next()
@@ -381,22 +378,19 @@ class KafkaUnsafeRelationSuite extends BaseKafkaUnsafeRelationSuite {
     }
   }
 
-  test("Direct Consumer should be able to get start offset") {
+  test("KafkaUnsafe Fetcher should be able to get start offset") {
     val topic = newTopic()
-    val partitions = 1
+    val numPartitions = 1
     val bootstrapServers = new JArrayList[String]();
     bootstrapServers.add(testUtils.brokerAddress)
-    testUtils.createTopic(topic, partitions = partitions)
+    testUtils.createTopic(topic, numPartitions)
     testUtils.sendMessages(topic, testKeyValueMsgs.toArray)
     val startClientId = "offset-test"
-    val kafkaConnectionPool = KafkaConnectionPool.getOrCreate(10,
-      new KafkaConnectionPoolConfig(bootstrapServers, startClientId));
 
-    val connection = kafkaConnectionPool.getConnection()
     val buffer = ByteBuffer.allocate(4096)
     val tp = new TopicPartition(topic, 0)
     val lconnection = getTestClientConnection()
-    try {
+
       val partitions = KafkaUnsafeFetcher.getPartitions(lconnection, topic)
       val earliest = KafkaUnsafeFetcher.earliestOffsets(lconnection, partitions,
         Seq(tp))
@@ -419,9 +413,6 @@ class KafkaUnsafeRelationSuite extends BaseKafkaUnsafeRelationSuite {
       val offsets = timestampOffsets.map(e => e._1 -> e._2.offset)
       assert(offsets === Map(tp -> 10))
       assert(timestampOffsets(tp).timestamp >= timestamp)
-    } finally {
-      kafkaConnectionPool.releaseConnection(connection)
-    }
   }
 
   private def getTestClientConnection() = {
