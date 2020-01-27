@@ -34,7 +34,7 @@ import java.nio.ByteBuffer;
  * Key fields and fixed fields cannot be changed.
  */
 
-public final class KafkaUnsafeRow extends InternalRow {
+public final class KafkaInternalRow extends InternalRow {
 
     public static final int FIXED_FIELDS = 4;
     public static final int TOPIC_FIELD_INDEX = 0 ;
@@ -55,7 +55,7 @@ public final class KafkaUnsafeRow extends InternalRow {
     private long offset;
     private long timestamp;
 
-    public KafkaUnsafeRow(String topic, int partition, int numKeyFields) {
+    public KafkaInternalRow(String topic, int partition, int numKeyFields) {
         this.numKeyFields = numKeyFields;
         this.partition = partition;
         this.valueFieldStart = FIXED_FIELDS + numKeyFields ;
@@ -73,28 +73,43 @@ public final class KafkaUnsafeRow extends InternalRow {
     }
 
     public void pointsTo(long offset, long timestamp,
+                         boolean isKeyNull, InternalRow key, boolean isValueNull, InternalRow value) {
+        this.offset = offset;
+        this.timestamp = timestamp;
+        this.isKeyNull = isKeyNull;
+        this.isValueNull = isValueNull;
+        this.key = key;
+        this.value = value;
+        if(value != null){
+            this.numValueFields = value.numFields();
+        }
+    }
+
+    public void pointsTo(long offset, long timestamp,
                          boolean isKeyNull, ByteBuffer keyBuffer, boolean isValueNull, ByteBuffer valueBuffer) {
+
         this.offset = offset;
         this.timestamp = timestamp;
         this.isKeyNull = isKeyNull;
         this.isValueNull = isValueNull;
 
-        if (!isKeyNull && key != null) {
+        if (!isKeyNull && numKeyFields > 0) {
             key = UnsafeRow.readInternal(keyBuffer, (UnsafeRow) key);
         }
-        if (!isValueNull && value != null) {
+
+        if (!isValueNull) {
             value = UnsafeRow.readInternal(valueBuffer, (UnsafeRow) value);
             numValueFields = value.numFields();
         }
     }
 
     private boolean isValue(int ordinal) {
-        return value != null && ordinal >= valueFieldStart
+        return ordinal >= valueFieldStart
                 && ordinal < valueFieldStart + value.numFields();
     }
 
     private boolean isKey(int ordinal) {
-        return key != null && ordinal >= keyFieldStart && ordinal < valueFieldStart;
+        return ordinal >= keyFieldStart && ordinal < valueFieldStart;
     }
 
     @Override

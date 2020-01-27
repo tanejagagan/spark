@@ -161,7 +161,7 @@ class KafkaUnsafeIterator(sourcePartition : KafkaUnsafeSourceRDDPartition,
   var consumerNetworkClient : ConsumerNetworkClient =
     KafkaConsumerClientRegistry.INSTANCE.getOrCreate( bootstrapServers, props)
 
-  val kafkaUnsafeRow = new KafkaUnsafeRow(sourcePartition.offsetRange.topic,
+  val kafkaUnsafeRow = new KafkaInternalRow(sourcePartition.offsetRange.topic,
     sourcePartition.offsetRange.partition, numKeyFields)
   val kafkaProjectedUnsafeRow = projectionMapping.map { p =>
     val pp = new KafkaProjectedUnsafeRow(p)
