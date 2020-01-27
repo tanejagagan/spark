@@ -19,22 +19,21 @@ package org.apache.spark.sql.kafka010
 
 import java.util.{Collections, Optional}
 
+import scala.collection.JavaConverters._
+
 import org.apache.kafka.clients.ClientResponse
 import org.apache.kafka.clients.consumer.internals.ConsumerNetworkClient
 import org.apache.kafka.common.{Node => KNode}
-
-import scala.collection.JavaConverters._
 import org.apache.kafka.common.{TopicPartition}
 import org.apache.kafka.common.requests._
 import org.apache.kafka.common.requests.MetadataResponse.PartitionMetadata
-import org.apache.spark.internal.Logging
 
+import org.apache.spark.internal.Logging
 
 case class ResponseOffset(offset: Long, timestamp: Long)
 
 class KafkaException(ex: Exception) extends RuntimeException {
   def this(str: String) = this(new Exception(str))
-
   def this(str: String, exception: Exception) = this(exception)
 }
 
@@ -122,7 +121,7 @@ object KafkaUnsafeFetcher extends Logging {
                 topicPartition: TopicPartition,
                 startFetchOffset: Long,
                 endFetchOffset: Long,
-                maxSize: Int,
+                maxSize: Int
                ): ClientResponse = {
     val fetchData: java.util.Map[TopicPartition, FetchRequest.PartitionData] =
       Collections.singletonMap(topicPartition, new FetchRequest.PartitionData(startFetchOffset,

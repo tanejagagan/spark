@@ -26,9 +26,9 @@ import org.apache.spark.sql.catalyst.expressions.{UnsafeProjection, UnsafeRow}
 import org.apache.spark.sql.types._
 import org.apache.spark.unsafe.types.{CalendarInterval, UTF8String}
 
-class KafkaUnsafeRowSpec extends WordSpec {
+class KafkaInternalRowSpec extends WordSpec {
 
-  import KafkaUnsafeRow._
+  import KafkaInternalRow._
 
   val partition = 0
   val offset = 1000
@@ -42,58 +42,58 @@ class KafkaUnsafeRowSpec extends WordSpec {
   val arrayBackedUnsafeRowValue: UnsafeRow =
     UnsafeProjection.create(Array[DataType](StringType, StringType, IntegerType)).apply(value)
 
-  "KafkaUnsafeRow" should {
+  "KafkaInternalRow" should {
 
     "With key and value schema" in {
       val partition = 1
       val key = new Key(10)
       val value = new Value(20)
-      val kafkaUnsafeRow = new KafkaUnsafeRow("topic", partition, key.productArity)
-      kafkaUnsafeRow.pointsTo(10L, 10L, false,
+      val kafkaInternalRow = new KafkaInternalRow("topic", partition, key.productArity)
+      kafkaInternalRow.pointsTo(10L, 10L, false,
         ByteBuffer.wrap(key.encode), false, ByteBuffer.wrap(value.encode))
 
       // Test key fields
-      assert(kafkaUnsafeRow.getString(FIXED_FIELDS) == key.keyStr)
-      assert(kafkaUnsafeRow.getInt(FIXED_FIELDS + 1) == key.keyInt)
+      assert(kafkaInternalRow.getString(FIXED_FIELDS) == key.keyStr)
+      assert(kafkaInternalRow.getInt(FIXED_FIELDS + 1) == key.keyInt)
 
       // Test value fields
-      assert(kafkaUnsafeRow.getString(FIXED_FIELDS + 2) == value.valStr)
-      assert(kafkaUnsafeRow.getInt(FIXED_FIELDS + 3) == value.valInt)
+      assert(kafkaInternalRow.getString(FIXED_FIELDS + 2) == value.valStr)
+      assert(kafkaInternalRow.getInt(FIXED_FIELDS + 3) == value.valInt)
     }
 
 
     "get correct values for various data types for unsafe Row" in {
-      val kafkaUnsafeRow = new KafkaUnsafeRow("topic", partition, key.numFields)
+      val kafkaInternalRow = new KafkaInternalRow("topic", partition, key.numFields)
       val keyArrayBuffer = ByteBuffer.wrap(UnsafeRow.writeExternal(arrayBackedUnsafeRowKey))
       val valueArrayBuffer = ByteBuffer.wrap(UnsafeRow.writeExternal(arrayBackedUnsafeRowValue))
-      kafkaUnsafeRow.pointsTo(offset, timestamp, false, keyArrayBuffer, false, valueArrayBuffer)
+      kafkaInternalRow.pointsTo(offset, timestamp, false, keyArrayBuffer, false, valueArrayBuffer)
 
       // get fixed Fields
-      assert(kafkaUnsafeRow.getString(TOPIC_FIELD_INDEX) === "topic")
-      assert(kafkaUnsafeRow.getInt(PARTITION_FIELD_INDEX) === partition)
-      assert(kafkaUnsafeRow.getLong(OFFSET_FIELDS_INDEX) === offset)
-      assert(kafkaUnsafeRow.getLong(TIMESTAMP_FIELDS_INDEX) === timestamp)
+      assert(kafkaInternalRow.getString(TOPIC_FIELD_INDEX) === "topic")
+      assert(kafkaInternalRow.getInt(PARTITION_FIELD_INDEX) === partition)
+      assert(kafkaInternalRow.getLong(OFFSET_FIELDS_INDEX) === offset)
+      assert(kafkaInternalRow.getLong(TIMESTAMP_FIELDS_INDEX) === timestamp)
 
       // get Key Fields
-      assert(kafkaUnsafeRow.getString(FIXED_FIELDS) === "hello-key")
-      assert(kafkaUnsafeRow.getString(FIXED_FIELDS + 1) === "world-key")
-      assert(kafkaUnsafeRow.getLong(FIXED_FIELDS + 2) === 123)
+      assert(kafkaInternalRow.getString(FIXED_FIELDS) === "hello-key")
+      assert(kafkaInternalRow.getString(FIXED_FIELDS + 1) === "world-key")
+      assert(kafkaInternalRow.getLong(FIXED_FIELDS + 2) === 123)
 
       // get Value Fields
-      assert(kafkaUnsafeRow.getString(FIXED_FIELDS + 3) === "hello-value")
-      assert(kafkaUnsafeRow.getString(FIXED_FIELDS + 4) === "world-value")
-      assert(kafkaUnsafeRow.getLong(FIXED_FIELDS + 5) === 456)
-      assert(kafkaUnsafeRow.isNullAt(FIXED_FIELDS + 6) === true)
+      assert(kafkaInternalRow.getString(FIXED_FIELDS + 3) === "hello-value")
+      assert(kafkaInternalRow.getString(FIXED_FIELDS + 4) === "world-value")
+      assert(kafkaInternalRow.getLong(FIXED_FIELDS + 5) === 456)
+      assert(kafkaInternalRow.isNullAt(FIXED_FIELDS + 6) === true)
     }
 
     "get correct value for Kafka Projected Unsafe Row " in {
-      val kafkaUnsafeRow = new KafkaUnsafeRow("topic", partition, key.numFields)
+      val kafkaInternalRow = new KafkaInternalRow("topic", partition, key.numFields)
       val keyArrayBuffer = ByteBuffer.wrap(UnsafeRow.writeExternal(arrayBackedUnsafeRowKey))
       val valueArrayBuffer = ByteBuffer.wrap(UnsafeRow.writeExternal(arrayBackedUnsafeRowValue))
-      kafkaUnsafeRow.pointsTo(offset, timestamp, false, keyArrayBuffer, false, valueArrayBuffer)
+      kafkaInternalRow.pointsTo(offset, timestamp, false, keyArrayBuffer, false, valueArrayBuffer)
       val projectionMap = (0 to 10).reverse.toArray
       val projectRow = new KafkaProjectedUnsafeRow(projectionMap);
-      projectRow.pointsTo(kafkaUnsafeRow)
+      projectRow.pointsTo(kafkaInternalRow)
 
       // get fixed Fields
       assert(projectRow.getString(FIXED_FIELDS + 6) === "topic")
@@ -118,36 +118,36 @@ class KafkaUnsafeRowSpec extends WordSpec {
       val partition = 1
       val key = new Key(10)
       val value = new Value(20)
-      val kafkaUnsafeRow = new KafkaUnsafeRow("topic", partition, key.productArity)
-      kafkaUnsafeRow.pointsTo(10L, 10L, true,
+      val kafkaInternalRow = new KafkaInternalRow("topic", partition, key.productArity)
+      kafkaInternalRow.pointsTo(10L, 10L, true,
         ByteBuffer.wrap(key.encode), false, ByteBuffer.wrap(value.encode))
 
       // Test key fields
       // get Key Fields
       // Test key fields
-      assert(kafkaUnsafeRow.isNullAt(FIXED_FIELDS))
-      assert(kafkaUnsafeRow.isNullAt(FIXED_FIELDS + 1))
+      assert(kafkaInternalRow.isNullAt(FIXED_FIELDS))
+      assert(kafkaInternalRow.isNullAt(FIXED_FIELDS + 1))
 
       // Test value fields
-      assert(kafkaUnsafeRow.getString(FIXED_FIELDS + key.productArity) == value.valStr)
-      assert(kafkaUnsafeRow.getInt(FIXED_FIELDS + key.productArity + 1) == value.valInt)
+      assert(kafkaInternalRow.getString(FIXED_FIELDS + key.productArity) == value.valStr)
+      assert(kafkaInternalRow.getInt(FIXED_FIELDS + key.productArity + 1) == value.valInt)
     }
 
     "get correct value for various data type when value is null" in {
       val partition = 1
       val key = new Key(10)
       val value = new Value(20)
-      val kafkaUnsafeRow = new KafkaUnsafeRow("topic", partition, key.productArity)
-      kafkaUnsafeRow.pointsTo(10L, 10L, false,
+      val kafkaInternalRow = new KafkaInternalRow("topic", partition, key.productArity)
+      kafkaInternalRow.pointsTo(10L, 10L, false,
         ByteBuffer.wrap(key.encode), true, ByteBuffer.wrap(Array[Byte]()))
 
       // Test key fields
-      assert(kafkaUnsafeRow.getString(FIXED_FIELDS) === "key-10")
-      assert(kafkaUnsafeRow.getInt(FIXED_FIELDS + 1) === 10)
+      assert(kafkaInternalRow.getString(FIXED_FIELDS) === "key-10")
+      assert(kafkaInternalRow.getInt(FIXED_FIELDS + 1) === 10)
 
       // Test value fields
-      assert(kafkaUnsafeRow.isNullAt(FIXED_FIELDS + key.productArity))
-      assert(kafkaUnsafeRow.isNullAt(FIXED_FIELDS + key.productArity + 1))
+      assert(kafkaInternalRow.isNullAt(FIXED_FIELDS + key.productArity))
+      assert(kafkaInternalRow.isNullAt(FIXED_FIELDS + key.productArity + 1))
     }
 
     "get correct value for various data type when value has less fields" in {
@@ -155,18 +155,18 @@ class KafkaUnsafeRowSpec extends WordSpec {
       val key = new Key(10)
       val value = new Value(20)
       val valueJson = value.toJson
-      val kafkaUnsafeRow = new KafkaUnsafeRow("topic", partition, key.productArity)
-      kafkaUnsafeRow.pointsTo(10L, 10L, false,
+      val kafkaInternalRow = new KafkaInternalRow("topic", partition, key.productArity)
+      kafkaInternalRow.pointsTo(10L, 10L, false,
         ByteBuffer.wrap(key.encode), false,
         ByteBuffer.wrap(value.encoderForLessFields(valueJson.getBytes)))
 
       // Test key fields
-      assert(kafkaUnsafeRow.getString(FIXED_FIELDS) === "key-10")
-      assert(kafkaUnsafeRow.getInt(FIXED_FIELDS + 1) === 10)
+      assert(kafkaInternalRow.getString(FIXED_FIELDS) === "key-10")
+      assert(kafkaInternalRow.getInt(FIXED_FIELDS + 1) === 10)
 
       // Test value fields
-      assert(kafkaUnsafeRow.getString(FIXED_FIELDS + key.productArity) === "value-20")
-      assert(kafkaUnsafeRow.isNullAt(FIXED_FIELDS + key.productArity + 1))
+      assert(kafkaInternalRow.getString(FIXED_FIELDS + key.productArity) === "value-20")
+      assert(kafkaInternalRow.isNullAt(FIXED_FIELDS + key.productArity + 1))
     }
 
     "get correct value for various data type when value schema has more fields" in {
@@ -174,19 +174,19 @@ class KafkaUnsafeRowSpec extends WordSpec {
       val key = new Key(10)
       val additionalData = "Additional"
       val value = new Value(20, additionalData)
-      val kafkaUnsafeRow = new KafkaUnsafeRow("topic", partition, key.productArity)
-      kafkaUnsafeRow.pointsTo(10L, 10L, false,
+      val kafkaInternalRow = new KafkaInternalRow("topic", partition, key.productArity)
+      kafkaInternalRow.pointsTo(10L, 10L, false,
         ByteBuffer.wrap(key.encode), false,
         ByteBuffer.wrap(value.encoderForMoreFields(value.toJson.getBytes)))
 
       // Test key fields
-      assert(kafkaUnsafeRow.getString(FIXED_FIELDS) === "key-10")
-      assert(kafkaUnsafeRow.getInt(FIXED_FIELDS + 1) === 10)
+      assert(kafkaInternalRow.getString(FIXED_FIELDS) === "key-10")
+      assert(kafkaInternalRow.getInt(FIXED_FIELDS + 1) === 10)
 
       // Test value fields
-      assert(kafkaUnsafeRow.getString(FIXED_FIELDS + key.productArity) === "value-20")
-      assert(kafkaUnsafeRow.getInt(FIXED_FIELDS + key.productArity + 1) === 20)
-      assert(kafkaUnsafeRow.getString(FIXED_FIELDS +
+      assert(kafkaInternalRow.getString(FIXED_FIELDS + key.productArity) === "value-20")
+      assert(kafkaInternalRow.getInt(FIXED_FIELDS + key.productArity + 1) === 20)
+      assert(kafkaInternalRow.getString(FIXED_FIELDS +
         key.productArity + value.productArity - 1) === additionalData)
     }
   }
