@@ -18,8 +18,7 @@
 package org.apache.spark.sql.kafka010
 
 import java.nio.ByteBuffer
-import java.util
-import java.util.{ArrayList => JArrayList, Collections, Properties}
+import java.util.{ArrayList => JArrayList, Properties }
 import java.util.concurrent.atomic.AtomicInteger
 
 import org.apache.kafka.common.TopicPartition
@@ -27,7 +26,7 @@ import org.apache.kafka.common.TopicPartition
 import org.apache.spark.sql.QueryTest
 import org.apache.spark.sql.catalyst.expressions.{Expression, Literal, Or}
 import org.apache.spark.sql.test.SharedSQLContext
-import org.apache.spark.sql.types.StructType
+import org.apache.spark.sql.types.{IntegerType, MapType, StringType, StructType}
 
 
 case class ResultVerify(valStr: String,
@@ -68,8 +67,17 @@ abstract class BaseKafkaUnsafeRelationSuite extends QueryTest with SharedSQLCont
   val testValueMsgs = (0 to 9).map(i => new Value(i).encode)
   val k = new Key(1)
   val v = new Value(1)
-  val keyValueSchema = new StructType(
-    KafkaUnsafeRelation.fixedSchema.fields ++ k.schema.fields ++ v.schema.fields)
+
+  val keySchema = k.schema
+  val valueSchema = v.schema
+  val fewKeyAnvValueFields = StructType(Array(k.schema.fields.head, v.schema.fields.head))
+
+  val fixedFieldsKeyAndValueSchema = new StructType(
+    KafkaUnsafeRelation.fixedSchema.fields ++ keySchema.fields ++ valueSchema.fields)
+
+  val keyAndValueSchema = new StructType(
+    k.schema.fields ++ v.schema.fields)
+
   private val topicId = new AtomicInteger(0)
   protected var testUtils: KafkaUnsafeTestUtils = _
 
@@ -105,18 +113,59 @@ abstract class BaseKafkaUnsafeRelationSuite extends QueryTest with SharedSQLCont
 
   protected def newTopic(): String = s"${topicPrefix}-${topicId.getAndIncrement()}"
 
-  protected def createDF(
+  protected def createDFWithAllFields(
+                           topic: String,
+                           partitions: Int,
+                           withOptions: Map[String, String] = Map.empty[String, String],
+                           brokerAddress: Option[String] = None) = {
+    createDFWithFields(topic, partitions, fixedFieldsKeyAndValueSchema, withOptions, brokerAddress )
+  }
+
+  protected def createDFWithFields(
                           topic: String,
                           partitions: Int,
+                          schema : StructType,
                           withOptions: Map[String, String] = Map.empty[String, String],
                           brokerAddress: Option[String] = None) = {
     val df = spark
       .read
       .format("org.apache.spark.sql.kafka010.KafkaUnsafeRelationProvider")
-      .schema(keyValueSchema)
+      .schema(schema)
       .option("kafka.bootstrap.servers", brokerAddress.getOrElse(testUtils.brokerAddress))
       .option("kafka.consumer.id", "test-consumer-id")
-      .option("key-columns", "keyStr, keyInt")
+      .option("key-columns", keySchema.fields.map(_.name).mkString(","))
+      .option("value-columns", valueSchema.fields.map(_.name).mkString(","))
+      .option("topic", topic)
+
+    withOptions.foreach {
+      case (key, value) => df.option(key, value)
+    }
+    df.load()
+  }
+
+  protected def createDFWithFieldsAndNullColumns(
+                                    topic: String,
+                                    partitions: Int,
+                                    schema : StructType,
+                                    additionalKeyFields : StructType,
+                                    additionValueFields : StructType,
+                                    withOptions: Map[String, String] = Map.empty[String, String],
+                                    brokerAddress: Option[String] = None) = {
+
+    val tableSchema = StructType(schema.fields ++
+      additionalKeyFields.fields ++
+      additionValueFields.fields)
+
+    val df = spark
+      .read
+      .format("org.apache.spark.sql.kafka010.KafkaUnsafeRelationProvider")
+      .schema(tableSchema)
+      .option("kafka.bootstrap.servers", brokerAddress.getOrElse(testUtils.brokerAddress))
+      .option("kafka.consumer.id", "test-consumer-id")
+      .option("key-columns",
+        (keySchema.fields ++ additionalKeyFields.fields).map(_.name).mkString(","))
+      .option("value-columns",
+        (valueSchema.fields ++ additionValueFields).map(_.name).mkString(","))
       .option("topic", topic)
 
     withOptions.foreach {
@@ -139,16 +188,27 @@ class KafkaUnsafeRelationSuite extends BaseKafkaUnsafeRelationSuite {
   def topicPrefix: String = "unsafe-relation"
 
   test("Run simple sql with some rows") {
-    val topic = newTopic()
-    val partitions = 2
-    testUtils.createTopic(topic, partitions = partitions)
-    val df = createDF(topic, partitions,
-      withOptions = Map())
-    assert(df.count() === 0)
-    val toVerify = sendMessage(topic, partitions)
-    val select = df.select(ResultVerify.fields.head, ResultVerify.fields.tail: _*)
-      .orderBy("partition", "offset")
-    checkAnswer(select, (toVerify(0) ++ toVerify(1)).toDS().toDF())
+    testWithAllSchema
+  }
+
+  test("Run sql with only keyValue schema") {
+    testWithSchema(keyAndValueSchema)
+  }
+
+  test("Run sql with only key schema") {
+    testWithSchema(keySchema)
+  }
+
+  test("Run sql with only value schema") {
+    testWithSchema(valueSchema)
+  }
+
+  test("Run sql with few key and value fields") {
+    testWithSchema(fewKeyAnvValueFields)
+  }
+
+  test("Run sql with null key and value fields") {
+    testWithAdditionNullColumns(keyAndValueSchema)
   }
 
   test("Performance with million rows") {
@@ -156,7 +216,7 @@ class KafkaUnsafeRelationSuite extends BaseKafkaUnsafeRelationSuite {
     val partitions = 4
     val batches = 500
     testUtils.createTopic(topic, partitions = partitions)
-    val df = createDF(topic, partitions,
+    val df = createDFWithAllFields(topic, partitions,
       withOptions = Map())
     assert(df.count() === 0)
     val toVerify = sendMessage(topic, partitions, batches)
@@ -166,12 +226,11 @@ class KafkaUnsafeRelationSuite extends BaseKafkaUnsafeRelationSuite {
         .collect().head.getAs[Long](0) === (batches * partitions * testKeyValueMsgs.size))
   }
 
-
   test("Run sql with partition filters") {
     val topic = newTopic()
     val partitions = 2
     testUtils.createTopic(topic, partitions = partitions)
-    val df = createDF(topic, partitions,
+    val df = createDFWithAllFields(topic, partitions,
       withOptions = Map())
     val toVerify = sendMessage(topic, partitions)
 
@@ -189,7 +248,7 @@ class KafkaUnsafeRelationSuite extends BaseKafkaUnsafeRelationSuite {
     val topic = newTopic()
     val partitions = 2
     testUtils.createTopic(topic, partitions = partitions)
-    val df = createDF(topic, partitions,
+    val df = createDFWithAllFields(topic, partitions,
       withOptions = Map())
     val toVerify = sendMessage(topic, partitions)
 
@@ -284,7 +343,6 @@ class KafkaUnsafeRelationSuite extends BaseKafkaUnsafeRelationSuite {
     assert(mluRes.===((Some(lowerBound + 3), Some(upperBound - 2))))
   }
 
-
   test("Unsafe Iterator should process excluding last offset ") {
     val topic = newTopic()
     val partitions = 1
@@ -294,7 +352,7 @@ class KafkaUnsafeRelationSuite extends BaseKafkaUnsafeRelationSuite {
     testUtils.sendMessages(topic, testKeyValueMsgs.toArray)
     val bufferSize = 1024 * 1024
     val numKeyFields = 2
-    val config = new util.Properties()
+    val config = new Properties()
     val map = new java.util.HashMap[String, Object]();
 
     val consumerClient = KafkaConsumerClientRegistry.INSTANCE.getOrCreate(bootstrapServers, config)
@@ -303,7 +361,8 @@ class KafkaUnsafeRelationSuite extends BaseKafkaUnsafeRelationSuite {
         KafkaUnsafeSourceRDDOffsetRange(new Node(consumerClient.leastLoadedNode()),
           Seq(new Node(consumerClient.leastLoadedNode())),
           new TopicPartition(topic, 0), 0, maxOffset, None))
-      val iterator = new KafkaUnsafeIterator( sourcePartition, numKeyFields, bootstrapServers, map)
+      val iterator = new KafkaUnsafeIterator( sourcePartition,
+        numKeyFields, valueSchema.size, bootstrapServers, map)
       var count = 0L;
       while (iterator.hasNext) {
         val next = iterator.next()
@@ -322,7 +381,7 @@ class KafkaUnsafeRelationSuite extends BaseKafkaUnsafeRelationSuite {
     testUtils.sendMessages(topic, testKeyValueMsgs.toArray)
     val bufferSize = 1024 * 1024
     val numKeyFields = 2
-    val config = new util.Properties()
+    val config = new Properties()
     val map = new java.util.HashMap[String, Object]();
     val consumerClient = KafkaConsumerClientRegistry.INSTANCE.getOrCreate(bootstrapServers, config)
     for (minOffset <- 0 to testKeyValueMsgs.size - 1) {
@@ -330,7 +389,8 @@ class KafkaUnsafeRelationSuite extends BaseKafkaUnsafeRelationSuite {
         KafkaUnsafeSourceRDDOffsetRange(new Node(consumerClient.leastLoadedNode()),
           Seq(new Node(consumerClient.leastLoadedNode())), new TopicPartition(topic, 0), minOffset,
           testKeyValueMsgs.size, None))
-      val iterator = new KafkaUnsafeIterator( sourcePartition, numKeyFields, bootstrapServers, map)
+      val iterator = new KafkaUnsafeIterator( sourcePartition, numKeyFields,
+        valueSchema.size, bootstrapServers, map)
       var count = 0L;
       while (iterator.hasNext) {
         val next = iterator.next()
@@ -350,7 +410,7 @@ class KafkaUnsafeRelationSuite extends BaseKafkaUnsafeRelationSuite {
 
     val bufferSize = 1024 * 1024
     val numKeyFields = 2
-    val config = new util.Properties()
+    val config = new Properties()
     val map = new java.util.HashMap[String, Object]();
     val consumerClient = KafkaConsumerClientRegistry.INSTANCE.getOrCreate(bootstrapServers, config)
 
@@ -358,7 +418,8 @@ class KafkaUnsafeRelationSuite extends BaseKafkaUnsafeRelationSuite {
       KafkaUnsafeSourceRDDOffsetRange(new Node(consumerClient.leastLoadedNode()),
         Seq(new Node(consumerClient.leastLoadedNode())),
         new TopicPartition(topic, 0), 0, testKeyValueMsgs.size, None))
-    val iterator = new KafkaUnsafeIterator( sourcePartition, numKeyFields, bootstrapServers, map)
+    val iterator = new KafkaUnsafeIterator( sourcePartition, numKeyFields,
+      valueSchema.size, bootstrapServers, map)
     while (iterator.hasNext) {
       val next = iterator.next()
       assert(next.getUTF8String(4).toString.startsWith("key"))
@@ -368,7 +429,8 @@ class KafkaUnsafeRelationSuite extends BaseKafkaUnsafeRelationSuite {
     }
 
     val mappedIterator = new KafkaUnsafeIterator(
-      sourcePartition, numKeyFields, bootstrapServers, map, Some((0 to 7).reverse.toArray))
+      sourcePartition, numKeyFields,
+      valueSchema.size, bootstrapServers, map, Some((0 to 7).reverse.toArray))
     while (mappedIterator.hasNext) {
       val next = mappedIterator.next()
       assert(next.getUTF8String(3).toString.startsWith("key"))
@@ -413,6 +475,65 @@ class KafkaUnsafeRelationSuite extends BaseKafkaUnsafeRelationSuite {
       val offsets = timestampOffsets.map(e => e._1 -> e._2.offset)
       assert(offsets === Map(tp -> 10))
       assert(timestampOffsets(tp).timestamp >= timestamp)
+  }
+
+  private def testWithAllSchema(): Unit = {
+    val topic = newTopic()
+    val partitions = 2
+    testUtils.createTopic(topic, partitions = partitions)
+    val df = createDFWithAllFields(topic, partitions,
+      withOptions = Map())
+    assert(df.count() === 0)
+    val toVerify = sendMessage(topic, partitions)
+    val select = df.select(ResultVerify.fields.head, ResultVerify.fields.tail: _*)
+      .orderBy("partition", "offset")
+    checkAnswer(select, (toVerify(0) ++ toVerify(1)).toDS().toDF())
+  }
+
+  private def testWithSchema(schema : StructType): Unit = {
+    val topic = newTopic()
+    val partitions = 2
+    testUtils.createTopic(topic, partitions = partitions)
+    val df = createDFWithFields(topic, partitions, schema,
+      withOptions = Map())
+    assert(df.count() === 0)
+    val toVerify = sendMessage(topic, partitions)
+    val select = df.select(schema.fields.head.name, schema.fields.map(_.name): _*)
+      .orderBy(schema.fields.head.name)
+    val first = select.first()
+    assert(first.get(0) != null )
+    val count = select.count()
+    assert((toVerify(0) ++ toVerify(1)).size === count )
+  }
+
+  private def testWithAdditionNullColumns(schema : StructType): Unit = {
+    val topic = newTopic()
+    val partitions = 2
+    testUtils.createTopic(topic, partitions = partitions)
+    val additionalKeyFields = (new StructType())
+      .add("keyNullInt", IntegerType)
+      .add("keyNullString", StringType)
+
+    val additionValueFields = (new StructType())
+      .add("valueNulInt", IntegerType)
+      .add("valueNullString", StringType)
+    val df = createDFWithFieldsAndNullColumns(topic, partitions, schema,
+      additionalKeyFields, additionValueFields,
+      withOptions = Map())
+    assert(df.count() === 0)
+    val toVerify = sendMessage(topic, partitions)
+    val select = df.select(ResultVerify.fields.head, ResultVerify.fields.tail: _*)
+      .orderBy("partition", "offset")
+    checkAnswer(select, (toVerify(0) ++ toVerify(1)).toDS().toDF())
+    val nullFields = additionalKeyFields.fields ++ additionValueFields.fields
+    val allNull = df.select(nullFields.head.name, nullFields.tail.map(_.name) : _*)
+    allNull.show(1000)
+    allNull.collect().foreach { r =>
+      for (i <- 0 to (r.length -1 )) {
+
+        assert(r.isNullAt(i))
+      }
+    }
   }
 
   private def getTestClientConnection() = {
