@@ -70,6 +70,7 @@ private[kafka010] class KafkaUnsafeSourceRDD(
     executorKafkaParams: ju.Map[String, Object],
     offsetRanges: Seq[KafkaUnsafeSourceRDDOffsetRange],
     numKeyFields : Int,
+    numValueFields : Int,
     pollTimeoutMs: Long,
     failOnDataLoss: Boolean,
     reuseKafkaConsumer: Boolean,
@@ -117,7 +118,9 @@ private[kafka010] class KafkaUnsafeSourceRDD(
       val underlying = new KafkaUnsafeIterator(
         sourcePartition,
         numKeyFields,
-        bootstrapServers, executorKafkaParams,
+        numValueFields,
+        bootstrapServers,
+        executorKafkaParams,
         projectionMapping)
 
       // Release consumer, either by removing it or indicating we're no longer using it
@@ -133,6 +136,7 @@ private[kafka010] class KafkaUnsafeSourceRDD(
 
 class KafkaUnsafeIterator(sourcePartition : KafkaUnsafeSourceRDDPartition,
                           numKeyFields : Int,
+                          numValueFields : Int,
                           bootstrapServers : java.util.List[String],
                           executorKafkaParams : ju.Map[String, Object],
                           projectionMapping : Option[Array[Int]] = None)
@@ -162,9 +166,9 @@ class KafkaUnsafeIterator(sourcePartition : KafkaUnsafeSourceRDDPartition,
     KafkaConsumerClientRegistry.INSTANCE.getOrCreate( bootstrapServers, props)
 
   val kafkaUnsafeRow = new KafkaInternalRow(sourcePartition.offsetRange.topic,
-    sourcePartition.offsetRange.partition, numKeyFields)
+    sourcePartition.offsetRange.partition, numKeyFields, numValueFields)
   val kafkaProjectedUnsafeRow = projectionMapping.map { p =>
-    val pp = new KafkaProjectedUnsafeRow(p)
+    val pp = new KafkaProjectedInternalRow(p)
     pp.pointsTo(kafkaUnsafeRow)
     pp
   }.getOrElse(kafkaUnsafeRow)

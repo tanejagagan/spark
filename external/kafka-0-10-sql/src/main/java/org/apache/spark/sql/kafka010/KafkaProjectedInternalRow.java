@@ -8,10 +8,10 @@ import org.apache.spark.sql.types.Decimal;
 import org.apache.spark.unsafe.types.CalendarInterval;
 import org.apache.spark.unsafe.types.UTF8String;
 
-public final class KafkaProjectedUnsafeRow extends org.apache.spark.sql.catalyst.InternalRow {
+public final class KafkaProjectedInternalRow extends org.apache.spark.sql.catalyst.InternalRow {
     private final int[] projectionMap ;
     private InternalRow internal = null ;
-    public KafkaProjectedUnsafeRow(int[] projectionMap ){
+    public KafkaProjectedInternalRow(int[] projectionMap ){
         this.projectionMap = projectionMap;
     }
 

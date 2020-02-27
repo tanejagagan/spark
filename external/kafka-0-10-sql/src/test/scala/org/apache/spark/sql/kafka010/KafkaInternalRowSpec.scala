@@ -48,7 +48,8 @@ class KafkaInternalRowSpec extends WordSpec {
       val partition = 1
       val key = new Key(10)
       val value = new Value(20)
-      val kafkaInternalRow = new KafkaInternalRow("topic", partition, key.productArity)
+      val kafkaInternalRow = new KafkaInternalRow("topic",
+        partition, key.productArity, value.productArity)
       kafkaInternalRow.pointsTo(10L, 10L, false,
         ByteBuffer.wrap(key.encode), false, ByteBuffer.wrap(value.encode))
 
@@ -63,7 +64,8 @@ class KafkaInternalRowSpec extends WordSpec {
 
 
     "get correct values for various data types for unsafe Row" in {
-      val kafkaInternalRow = new KafkaInternalRow("topic", partition, key.numFields)
+      val kafkaInternalRow = new KafkaInternalRow("topic", partition,
+        key.numFields, value.numFields)
       val keyArrayBuffer = ByteBuffer.wrap(UnsafeRow.writeExternal(arrayBackedUnsafeRowKey))
       val valueArrayBuffer = ByteBuffer.wrap(UnsafeRow.writeExternal(arrayBackedUnsafeRowValue))
       kafkaInternalRow.pointsTo(offset, timestamp, false, keyArrayBuffer, false, valueArrayBuffer)
@@ -87,12 +89,13 @@ class KafkaInternalRowSpec extends WordSpec {
     }
 
     "get correct value for Kafka Projected Unsafe Row " in {
-      val kafkaInternalRow = new KafkaInternalRow("topic", partition, key.numFields)
+      val kafkaInternalRow = new KafkaInternalRow("topic", partition,
+        key.numFields, value.numFields)
       val keyArrayBuffer = ByteBuffer.wrap(UnsafeRow.writeExternal(arrayBackedUnsafeRowKey))
       val valueArrayBuffer = ByteBuffer.wrap(UnsafeRow.writeExternal(arrayBackedUnsafeRowValue))
       kafkaInternalRow.pointsTo(offset, timestamp, false, keyArrayBuffer, false, valueArrayBuffer)
       val projectionMap = (0 to 10).reverse.toArray
-      val projectRow = new KafkaProjectedUnsafeRow(projectionMap);
+      val projectRow = new KafkaProjectedInternalRow(projectionMap);
       projectRow.pointsTo(kafkaInternalRow)
 
       // get fixed Fields
@@ -118,7 +121,8 @@ class KafkaInternalRowSpec extends WordSpec {
       val partition = 1
       val key = new Key(10)
       val value = new Value(20)
-      val kafkaInternalRow = new KafkaInternalRow("topic", partition, key.productArity)
+      val kafkaInternalRow = new KafkaInternalRow("topic", partition,
+        key.productArity, value.productArity)
       kafkaInternalRow.pointsTo(10L, 10L, true,
         ByteBuffer.wrap(key.encode), false, ByteBuffer.wrap(value.encode))
 
@@ -137,7 +141,8 @@ class KafkaInternalRowSpec extends WordSpec {
       val partition = 1
       val key = new Key(10)
       val value = new Value(20)
-      val kafkaInternalRow = new KafkaInternalRow("topic", partition, key.productArity)
+      val kafkaInternalRow = new KafkaInternalRow("topic", partition,
+        key.productArity, value.productArity)
       kafkaInternalRow.pointsTo(10L, 10L, false,
         ByteBuffer.wrap(key.encode), true, ByteBuffer.wrap(Array[Byte]()))
 
@@ -155,7 +160,8 @@ class KafkaInternalRowSpec extends WordSpec {
       val key = new Key(10)
       val value = new Value(20)
       val valueJson = value.toJson
-      val kafkaInternalRow = new KafkaInternalRow("topic", partition, key.productArity)
+      val kafkaInternalRow = new KafkaInternalRow("topic", partition,
+        key.productArity, value.productArity)
       kafkaInternalRow.pointsTo(10L, 10L, false,
         ByteBuffer.wrap(key.encode), false,
         ByteBuffer.wrap(value.encoderForLessFields(valueJson.getBytes)))
@@ -174,7 +180,8 @@ class KafkaInternalRowSpec extends WordSpec {
       val key = new Key(10)
       val additionalData = "Additional"
       val value = new Value(20, additionalData)
-      val kafkaInternalRow = new KafkaInternalRow("topic", partition, key.productArity)
+      val kafkaInternalRow = new KafkaInternalRow("topic", partition,
+        key.productArity, value.productArity)
       kafkaInternalRow.pointsTo(10L, 10L, false,
         ByteBuffer.wrap(key.encode), false,
         ByteBuffer.wrap(value.encoderForMoreFields(value.toJson.getBytes)))

@@ -264,7 +264,7 @@ private[kafka010] class KafkaUnsafeRelation(
       topic, partitions, filters)
 
     val rdd = new KafkaUnsafeSourceRDD(
-      sqlContext.sparkContext, executorKafkaParams, offsets.toSeq, keySchema.size,
+      sqlContext.sparkContext, executorKafkaParams, offsets.toSeq, keySchema.size, valueSchema.size,
       pollTimeoutMs, true, reuseKafkaConsumer = false, projectMapping)
       rdd.asInstanceOf[RDD[Row]]
   }
@@ -276,6 +276,8 @@ private[kafka010] class KafkaUnsafeRelation(
 }
 
 class KafkaUnsafeRelationProvider extends DataSourceRegister with SchemaRelationProvider {
+  val keyColumnsProperty = "key-columns"
+  val valueColumnProperty = "value-columns"
   /**
    * The string that represents the format that this data source provider uses. This is
    * overridden by children to provide a nice alias for the data source. For example:
@@ -286,7 +288,8 @@ class KafkaUnsafeRelationProvider extends DataSourceRegister with SchemaRelation
    *
    * @since 1.5.0
    */
-  override def shortName(): String = "kafka-unsafe"
+  override def shortName(): String = "k-live"
+
 
   /**
    * Returns a new base relation with the given parameters and user defined schema.
@@ -296,17 +299,45 @@ class KafkaUnsafeRelationProvider extends DataSourceRegister with SchemaRelation
    */
   override def createRelation(sqlContext: SQLContext,
                               parameters: Map[String, String], schema: StructType): BaseRelation = {
+    if ((!parameters.contains(keyColumnsProperty)) && !(parameters.contains(valueColumnProperty))) {
+      throw new RuntimeException(s"both $keyColumnsProperty and $valueColumnProperty are not set")
+    }
+
     val schemaMap = schema.fields.map(f => (f.name, f)).toMap
-    val keySchema = parameters.get("key-columns").map{ list =>
-      val fields = list.split(",").map( _.trim).map(name => schemaMap(name))
+    val keySchema = parameters.get(keyColumnsProperty).map{ list =>
+      val fields = list.split(",")
+        .map( _.trim)
+        .filter(schemaMap.contains(_))
+        .map(name => schemaMap(name))
       StructType(fields)
     }.getOrElse(new StructType())
-    val keySchemaFields = keySchema.fields.map(_.name).toSet
-    val fixedSchemaFields = KafkaUnsafeRelation.fixedSchema.fields.map(_.name).toSet
-    val valueSchemaFields = schema.fields.filterNot(f => keySchemaFields.contains(f.name))
-      .filterNot(f => fixedSchemaFields.contains(f.name))
 
-    val valueSchema = StructType(valueSchemaFields)
+    val valueSchema = parameters.get(valueColumnProperty).map{ list =>
+      val fields = list.split(",")
+        .map( _.trim)
+        .filter(schemaMap.contains(_))
+        .map(name => schemaMap(name))
+      StructType(fields)
+    }.getOrElse(new StructType())
+
+    val allFields = (KafkaUnsafeRelation.fixedSchema.fields ++
+      keySchema.fields ++ valueSchema.fields.toSet).toSet
+
+    // Check all the fields in schema are valid including datatypes
+    schema.fields.foreach{ f =>
+      val fMap = KafkaUnsafeRelation.fixedSchema.fields.map(f => (f.name, f)).toMap
+      if(fMap.contains(f.name) && fMap(f.name)!= f) {
+        throw new RuntimeException(
+          s"Data type mismatch for ${f.name}. Found $f expected ${fMap(f.name)}")
+      }
+      if(!allFields.contains(f)) {
+        throw new RuntimeException(
+          s"${f.name} fields in not found in $keyColumnsProperty " +
+            s"and $valueColumnProperty " +
+            s"and fixed fields ${fMap.values.mkString(",")}")
+      }
+    }
+
     val partitions = parameters.get("partitions").map( _.split(",").map(_.toInt).toSeq)
     val topic = parameters("topic")
     val startingRelationOffsets = KafkaSourceProvider.getKafkaOffsetRangeLimit(
