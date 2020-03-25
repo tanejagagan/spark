@@ -15,12 +15,12 @@
  * limitations under the License.
  */
 
-package org.apache.spark.sql.catalyst.json
+package org.apache.spark.sql.catalyst.encoders
+
+import org.apache.spark.sql.catalyst.expressions.UnsafeRow
+import org.scalatest.WordSpec
 
 import scala.reflect.runtime.universe._
-import org.scalatest.WordSpec
-import org.apache.spark.sql.catalyst.encoders.{ExpressionEncoder, UnsafeEncoder}
-import org.apache.spark.sql.catalyst.expressions.UnsafeRow
 
 class UnsafeEncoderSpec extends WordSpec {
   val json = """{"intVal": 10, "stringVal": "10", "longVal": 100 }"""
