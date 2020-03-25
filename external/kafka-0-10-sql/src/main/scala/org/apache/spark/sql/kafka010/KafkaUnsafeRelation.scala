@@ -340,9 +340,6 @@ class KafkaUnsafeRelationProvider extends DataSourceRegister with SchemaRelation
 
     val partitions = parameters.get("partitions").map( _.split(",").map(_.toInt).toSeq)
     val topic = parameters("topic")
-    val startingRelationOffsets = KafkaSourceProvider.getKafkaOffsetRangeLimit(
-      parameters, KafkaSourceProvider.STARTING_OFFSETS_OPTION_KEY, EarliestOffsetRangeLimit)
-    assert(startingRelationOffsets != LatestOffsetRangeLimit)
 
     val caseInsensitiveParams = parameters.map { case (k, v) => (k.toLowerCase(Locale.ROOT), v) }
     val specifiedKafkaParams =
@@ -352,9 +349,6 @@ class KafkaUnsafeRelationProvider extends DataSourceRegister with SchemaRelation
         .map { k => k.drop(6).toString -> parameters(k) }
         .toMap
 
-    val endingRelationOffsets = KafkaSourceProvider.getKafkaOffsetRangeLimit(parameters,
-      KafkaSourceProvider.ENDING_OFFSETS_OPTION_KEY, LatestOffsetRangeLimit)
-    assert(endingRelationOffsets != EarliestOffsetRangeLimit)
     new KafkaUnsafeRelation(sqlContext, caseInsensitiveParams, specifiedKafkaParams, keySchema,
       valueSchema, topic, partitions)
   }
