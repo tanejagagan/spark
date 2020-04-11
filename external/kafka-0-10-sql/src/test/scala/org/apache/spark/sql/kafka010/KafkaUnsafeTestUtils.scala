@@ -23,7 +23,7 @@ import java.util.Properties
 import org.apache.kafka.clients.producer.{KafkaProducer, Producer, ProducerRecord}
 import org.apache.kafka.common.serialization.ByteArraySerializer
 
-import org.apache.spark.sql.catalyst.json.UnsafeJsonEncoder
+import org.apache.spark.sql.catalyst.encoders.UnsafeEncoder
 import org.apache.spark.sql.types._
 
 
@@ -50,7 +50,7 @@ case class Key(keyStr: String, keyInt: Int) extends UnsafeSerializable {
     .add("keyInt", IntegerType)
 
 
-  val encoder = UnsafeJsonEncoder.encoderFor(schema.toDDL)
+  val encoder = UnsafeEncoder.forSchema(schema.toDDL).build()
   private implicit val formats = Serialization.formats(NoTypeHints)
 
   import Serialization.write
@@ -106,13 +106,13 @@ case class Value(valStr: String, valInt: Int,
     .add("valStruct", internalStructSchema)
 
 
-  val encoderForLessFields = UnsafeJsonEncoder.encoderFor(
-    new StructType().add("valStr", StringType).toDDL)
+  val encoderForLessFields = UnsafeEncoder.forSchema(
+    new StructType().add("valStr", StringType).toDDL).build()
 
-  val encoderForMoreFields = UnsafeJsonEncoder.encoderFor(
-    StructType(schema.fields).add("additional", StringType).toDDL)
+  val encoderForMoreFields = UnsafeEncoder.forSchema(
+    StructType(schema.fields).add("additional", StringType).toDDL).build()
 
-  val encoder = UnsafeJsonEncoder.encoderFor(schema.toDDL)
+  val encoder = UnsafeEncoder.forSchema(schema.toDDL).build()
 
   def toJson: String = write(this)
 }
@@ -124,8 +124,8 @@ class KafkaUnsafeTestUtils(withBrokerProps: Map[String, Object] = Map.empty)
   def sendJsonMessages(keySchema: String, valueSchema: String,
                        topic: String, keyValueJson: Array[(String, String)]): Unit = {
 
-    val keyEncoder = UnsafeJsonEncoder.encoderFor(keySchema)
-    val valueEncoder = UnsafeJsonEncoder.encoderFor(valueSchema)
+    val keyEncoder = UnsafeEncoder.forSchema(keySchema).build()
+    val valueEncoder = UnsafeEncoder.forSchema(valueSchema).build()
     val keyValues = keyValueJson.map(x =>
       (keyEncoder(x._1.getBytes()), valueEncoder(x._2.getBytes())))
     sendMessages(topic, keyValues)
