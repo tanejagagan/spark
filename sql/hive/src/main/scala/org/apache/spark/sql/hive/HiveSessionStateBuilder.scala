@@ -36,7 +36,8 @@ import org.apache.spark.sql.internal.{BaseSessionStateBuilder, SessionResourceLo
 class HiveSessionStateBuilder(session: SparkSession, parentState: Option[SessionState] = None)
   extends BaseSessionStateBuilder(session, parentState) {
 
-  private def externalCatalog: ExternalCatalogWithListener = session.sharedState.externalCatalog
+  private def externalCatalog: ExternalCatalogWithListener =
+    session.sharedState.externalCatalog(session.sessionState.getDomain())
 
   /**
    * Create a Hive aware resource loader.

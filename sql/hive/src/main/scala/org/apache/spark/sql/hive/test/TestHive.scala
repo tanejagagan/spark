@@ -42,7 +42,7 @@ import org.apache.spark.sql.execution.{QueryExecution, SQLExecution}
 import org.apache.spark.sql.execution.command.CacheTableCommand
 import org.apache.spark.sql.hive._
 import org.apache.spark.sql.hive.client.HiveClient
-import org.apache.spark.sql.internal.{SessionState, SharedState, SQLConf, WithTestConf}
+import org.apache.spark.sql.internal.{SessionState, SharedState, SQLConf, StaticSQLConf, WithTestConf}
 import org.apache.spark.sql.internal.StaticSQLConf.CATALOG_IMPLEMENTATION
 import org.apache.spark.util.{ShutdownHookManager, Utils}
 
@@ -65,7 +65,10 @@ object TestHive
         // LocalRelation will exercise the optimization rules better by disabling it as
         // this rule may potentially block testing of other optimization rules such as
         // ConstantPropagation etc.
+        .set("spark.hadoop.javax.jdo.option.ConnectionURL",
+          "jdbc:derby:metastore_${domain};create=true")
         .set(SQLConf.OPTIMIZER_EXCLUDED_RULES.key, ConvertToLocalRelation.ruleName)))
+
 
 
 case class TestHiveVersion(hiveClient: HiveClient)
@@ -90,12 +93,15 @@ private[hive] class TestHiveSharedState(
     hiveClient: Option[HiveClient] = None)
   extends SharedState(sc) {
 
-  override lazy val externalCatalog: ExternalCatalogWithListener = {
-    new ExternalCatalogWithListener(new TestHiveExternalCatalog(
-      sc.conf,
-      sc.hadoopConfiguration,
-      hiveClient))
-  }
+  override protected val externalCatalogCreateFn =
+    new java.util.function.Function[String, ExternalCatalogWithListener]() {
+      def apply(domain: String): ExternalCatalogWithListener = {
+        new ExternalCatalogWithListener(new TestHiveExternalCatalog(
+          sc.conf,
+          sc.hadoopConfiguration,
+          hiveClient))
+      }
+    }
 }
 
 
@@ -278,7 +284,7 @@ private[hive] class TestHiveSparkSession(
   def getWarehousePath(): String = {
     val tempConf = new SQLConf
     sc.conf.getAll.foreach { case (k, v) => tempConf.setConfString(k, v) }
-    tempConf.warehousePath
+    tempConf.warehousePath(StaticSQLConf.DEFAULT_SQL_DOMAIN.defaultValue.get)
   }
 
   val describedTable = "DESCRIBE (\\w+)".r

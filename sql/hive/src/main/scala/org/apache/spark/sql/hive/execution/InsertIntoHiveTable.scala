@@ -77,7 +77,9 @@ case class InsertIntoHiveTable(
    * `org.apache.hadoop.mapred.OutputFormat` provided by the table definition.
    */
   override def run(sparkSession: SparkSession, child: SparkPlan): Seq[Row] = {
-    val externalCatalog = sparkSession.sharedState.externalCatalog
+    val externalCatalog = sparkSession.sharedState.externalCatalog(
+      sparkSession.sessionState.getDomain()
+    )
     val hadoopConf = sparkSession.sessionState.newHadoopConf()
 
     val hiveQlTable = HiveClientImpl.toHiveTable(table)

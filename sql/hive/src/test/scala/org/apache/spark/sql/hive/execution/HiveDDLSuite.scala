@@ -39,7 +39,7 @@ import org.apache.spark.sql.hive.HiveExternalCatalog
 import org.apache.spark.sql.hive.HiveUtils.{CONVERT_METASTORE_ORC, CONVERT_METASTORE_PARQUET}
 import org.apache.spark.sql.hive.orc.OrcFileOperator
 import org.apache.spark.sql.hive.test.TestHiveSingleton
-import org.apache.spark.sql.internal.{HiveSerDe, SQLConf}
+import org.apache.spark.sql.internal.{HiveSerDe, SQLConf, StaticSQLConf}
 import org.apache.spark.sql.internal.SQLConf.ORC_IMPLEMENTATION
 import org.apache.spark.sql.internal.StaticSQLConf.CATALOG_IMPLEMENTATION
 import org.apache.spark.sql.test.SQLTestUtils
@@ -1022,7 +1022,8 @@ class HiveDDLSuite
 
   private def dropDatabase(cascade: Boolean, tableExists: Boolean): Unit = {
     val dbName = "db1"
-    val dbPath = new Path(spark.sessionState.conf.warehousePath)
+    val dbPath = new Path(spark.sessionState.conf.warehousePath(
+      StaticSQLConf.DEFAULT_SQL_DOMAIN.defaultValue.get))
     val fs = dbPath.getFileSystem(spark.sessionState.newHadoopConf())
 
     sql(s"CREATE DATABASE $dbName")

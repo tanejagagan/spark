@@ -43,7 +43,7 @@ import org.apache.spark.sql._
 import org.apache.spark.sql.catalyst.catalog.CatalogTable
 import org.apache.spark.sql.execution.command.DDLUtils
 import org.apache.spark.sql.hive.client._
-import org.apache.spark.sql.internal.SQLConf
+import org.apache.spark.sql.internal.{SQLConf, StaticSQLConf}
 import org.apache.spark.sql.internal.SQLConf._
 import org.apache.spark.sql.internal.StaticSQLConf.{CATALOG_IMPLEMENTATION, WAREHOUSE_PATH}
 import org.apache.spark.sql.types._
@@ -233,6 +233,25 @@ private[spark] object HiveUtils extends Logging {
     }.toMap
   }
 
+  /*
+   * In order to support multiple hive catalog we process catalog string with
+   * and replace domain part with actual domain
+   */
+  private def formatConnectionWarehouseString(conf : SparkConf,
+                                              hadoopConf : Configuration,
+                                              domain : String): Map[String, String] = {
+    val connectionUrl = hadoopConf.get(ConfVars.METASTORECONNECTURLKEY.varname)
+    val warehouseDefaultValue = StaticSQLConf.WAREHOUSE_PATH.defaultValue.get
+    val warehousePath = conf.get(StaticSQLConf.WAREHOUSE_PATH.key, warehouseDefaultValue)
+    val warehouseProps = Map(StaticSQLConf.WAREHOUSE_PATH.key ->
+      warehousePath.replaceAll(
+        "\\$\\{domain\\}", domain),
+      ConfVars.METASTOREWAREHOUSE.varname ->
+        warehousePath.replaceAll(
+          "\\$\\{domain\\}", domain))
+
+    warehouseProps
+  }
   /**
    * Check current Thread's SessionState type
    * @return true when SessionState.get returns an instance of CliSessionState,
@@ -281,9 +300,11 @@ private[spark] object HiveUtils extends Logging {
    */
   protected[hive] def newClientForMetadata(
       conf: SparkConf,
-      hadoopConf: Configuration): HiveClient = {
+      hadoopConf: Configuration,
+      domain : String = StaticSQLConf.DEFAULT_SQL_DOMAIN.defaultValue.get ): HiveClient = {
     val configurations = formatTimeVarsForHiveClient(hadoopConf)
-    newClientForMetadata(conf, hadoopConf, configurations)
+    val connectionConfiguration = formatConnectionWarehouseString(conf, hadoopConf, domain)
+    newClientForMetadata(conf, hadoopConf, configurations ++ connectionConfiguration)
   }
 
   protected[hive] def newClientForMetadata(
