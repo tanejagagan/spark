@@ -121,23 +121,24 @@ case class Sha2(left: Expression, right: Expression)
     val digestUtils = "org.apache.commons.codec.digest.DigestUtils"
     nullSafeCodeGen(ctx, ev, (eval1, eval2) => {
       s"""
+        byte[] input = ${eval1}.toString().getBytes();
         if ($eval2 == 224) {
           try {
             java.security.MessageDigest md = java.security.MessageDigest.getInstance("SHA-224");
-            md.update($eval1);
+            md.update(input);
             ${ev.value} = UTF8String.fromBytes(md.digest());
           } catch (java.security.NoSuchAlgorithmException e) {
             ${ev.isNull} = true;
           }
         } else if ($eval2 == 256 || $eval2 == 0) {
           ${ev.value} =
-            UTF8String.fromString($digestUtils.sha256Hex($eval1));
+            UTF8String.fromString($digestUtils.sha256Hex(input));
         } else if ($eval2 == 384) {
           ${ev.value} =
-            UTF8String.fromString($digestUtils.sha384Hex($eval1));
+            UTF8String.fromString($digestUtils.sha384Hex(input));
         } else if ($eval2 == 512) {
           ${ev.value} =
-            UTF8String.fromString($digestUtils.sha512Hex($eval1));
+            UTF8String.fromString($digestUtils.sha512Hex(input));
         } else {
           ${ev.isNull} = true;
         }
