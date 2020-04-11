@@ -111,6 +111,11 @@ object UnsafeEncoder {
       return this;
     }
 
+    def select(col : Array[String]) : T = {
+      expressions = col
+      return this;
+    }
+
     def format(format: String): T = {
       if (format.toLowerCase != "json") {
         throw new RuntimeException("Only json format is current supported")
