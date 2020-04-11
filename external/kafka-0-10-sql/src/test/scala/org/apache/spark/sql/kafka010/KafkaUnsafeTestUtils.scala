@@ -49,6 +49,7 @@ case class Key(keyStr: String, keyInt: Int) extends UnsafeSerializable {
     .add("keyStr", StringType)
     .add("keyInt", IntegerType)
 
+
   val encoder = UnsafeJsonEncoder.encoderFor(schema.toDDL)
   private implicit val formats = Serialization.formats(NoTypeHints)
 
@@ -104,6 +105,7 @@ case class Value(valStr: String, valInt: Int,
     .add("valMap", MapType(StringType, StringType))
     .add("valStruct", internalStructSchema)
 
+
   val encoderForLessFields = UnsafeJsonEncoder.encoderFor(
     new StructType().add("valStr", StringType).toDDL)
 
@@ -121,6 +123,7 @@ class KafkaUnsafeTestUtils(withBrokerProps: Map[String, Object] = Map.empty)
 
   def sendJsonMessages(keySchema: String, valueSchema: String,
                        topic: String, keyValueJson: Array[(String, String)]): Unit = {
+
     val keyEncoder = UnsafeJsonEncoder.encoderFor(keySchema)
     val valueEncoder = UnsafeJsonEncoder.encoderFor(valueSchema)
     val keyValues = keyValueJson.map(x =>
